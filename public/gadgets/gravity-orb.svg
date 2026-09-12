@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="100" viewBox="0 0 120 100" fill="none" role="img" aria-label="Gravity Orb">
+ <ellipse cx="54" cy="51" rx="22" ry="42" transform="rotate(-35 54 51)" stroke="#63CCFF" stroke-width="4"/>
+ <path d="m38 29 25-5 19 14 4 27-21 14-24-9-13-21z" fill="#203151"/>
+ <path d="m38 29 25-5 19 14-25 5-29 6z" fill="#39456D"/>
+ <path d="m65 40 8 12-8 14-8-14z" fill="#BB83FF"/>
+ <path d="m42 35 5-3 7 8-5 4zm32 31 4-4 7 8-4 4zM40 59l4 4-7 8-4-4z" fill="#CBD9FF"/>
+ <path d="M90 34C78 16 46 9 27 23 8 38 20 64 50 76c25 9 50-2 53-19" stroke="#BB83FF" stroke-width="6"/>
+ <path d="M94 58V42a8 8 0 0 1 16 0v16" stroke="#FFC16C" stroke-width="8"/>
+ <path d="M90 51h8v10h-8zm16 0h8v10h-8z" fill="#63CCFF"/>
+</svg>

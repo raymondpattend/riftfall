@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="100" viewBox="0 0 120 100" fill="none" role="img" aria-label="Healing Totem">
+ <path d="m60 42-22-9-10-21 18 4 14 20z" fill="#36996D"/>
+ <path d="m61 43 17-23 19-5-5 23-26 11z" fill="#71D681"/>
+ <path d="m59 39-12-22L57 4l12 14-4 21z" fill="#71D681"/>
+ <path d="m60 15 7 10-7 14-7-14z" fill="#C9FFC3"/>
+ <path d="m42 42 18-6 19 6v43l-19 7-18-7z" fill="#A97650"/>
+ <path d="m60 42 19-1v44l-19 7z" fill="#BC8B61"/>
+ <path d="m38 40 22-6 23 6v7l-23 5-22-5zM37 81l23 6 23-6v9l-23 6-23-6z" fill="#E3B583"/>
+ <path d="M46 56h27v24H46z" fill="#42644C"/>
+ <path d="M56 59h7v18h-7z" fill="#C9FFC3"/>
+ <path d="M50 65h19v6H50zM44 47l10 2-1 4-10-2zm32 0-10 2 1 4 10-2z" fill="#C9FFC3"/>
+ <path d="m41 85-11 5 3 6 15-5zm40 0 12 5-3 6-15-5z" fill="#36996D"/>
+</svg>

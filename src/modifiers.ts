@@ -1,0 +1,2 @@
+export interface Modifiers {speed:number;jump:number;oneTap:boolean;instantRespawn:boolean;lowGravity:boolean;infiniteMana:boolean;cooldownScale:number;extraJumps:boolean;fastReload:boolean;knockback:boolean;vampiric:boolean;shieldRegen:boolean;partyLoot:boolean;}
+export const DEFAULT_MODIFIERS:Modifiers={speed:1,jump:1,oneTap:false,instantRespawn:false,lowGravity:false,infiniteMana:false,cooldownScale:1,extraJumps:false,fastReload:false,knockback:false,vampiric:false,shieldRegen:false,partyLoot:false};

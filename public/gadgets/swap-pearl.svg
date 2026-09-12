@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="100" viewBox="0 0 120 100" fill="none" role="img" aria-label="Swap Pearl">
+ <path d="m36 28 26-9 23 15 7 27-51 9-13-22z" fill="#4EDCC9"/>
+ <path d="m28 48 64 13-17 21-25-1-19-17z" fill="#A586F7"/>
+ <path d="m29 46 64 13-1 4-63-13z" fill="#294564"/>
+ <path d="m36 28 26-9 5 13-27 9z" fill="#AAFFF0"/>
+ <path d="m31 64 19 17 25 1-4-12z" fill="#7965CE"/>
+ <path d="M28 29c14-22 50-20 65 1" stroke="#EAFFFF" stroke-width="5"/>
+ <path d="m84 27 20 12-4-23z" fill="#EAFFFF"/>
+ <path d="M92 72c-15 20-48 19-65 0" stroke="#4EDCC9" stroke-width="5"/>
+ <path d="m35 73-20-12 4 23z" fill="#4EDCC9"/>
+ <path d="m50 29 5 8-5 9-5-9zm23 31 4 7-4 7-4-7z" fill="#EAFFFF"/>
+</svg>

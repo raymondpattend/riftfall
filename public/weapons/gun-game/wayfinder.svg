@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100" fill="none" role="img" aria-label="Rift rifle: pale alloy carbine with sage armor">
+  <path d="M12 35h44v11H12z" fill="#769095"/>
+  <path d="M5 31h18v19H5zM13 34h4v13h-4z" fill="#344649"/>
+  <path d="m47 29 25-12h83l23 12v23h-65l-16-8H54z" fill="#DDE6D9"/>
+  <path d="m68 18 8-6h80l15 9H68z" fill="#789B91"/>
+  <path d="M45 31h43v25H54l-9-7z" fill="#789B91"/>
+  <path d="M52 37h5v12h-5zm11 0h5v12h-5zm11 0h5v12h-5z" fill="#233B3D"/>
+  <path d="m99 24-9 19h56l-4-19z" fill="#789B91"/>
+  <path d="M107 30h32v5h-32z" fill="#ACFFF0"/>
+  <path d="m171 33 31-15h26v43h-16l-16-13h-25z" fill="#789B91"/>
+  <path d="M225 17h9v46h-9z" fill="#344649"/>
+  <path d="m145 48 14 2 8 31-20 4-5-18z" fill="#344649"/>
+  <path d="m142 79 24-4 3 8-25 5z" fill="#789B91"/>
+  <path d="m97 48 24 2-3 23-6 13-23-8z" fill="#233B3D"/>
+  <path d="m89 73 28 8-4 9-27-8z" fill="#789B91"/>
+  <path d="M124 48v14h25v-5h-19v-9z" fill="#344649"/>
+  <path d="m137 49 4 10h-5l-3-10zM145 5h6v10h-6zM76 6h5v10h-5z" fill="#344649"/>
+</svg>

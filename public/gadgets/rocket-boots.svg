@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="100" viewBox="0 0 120 100" fill="none" role="img" aria-label="Rocket Boots">
+ <g transform="translate(14 6) rotate(-7 20 40)">
+  <path d="M13 7h24v44l-9 7H7V37h6z" fill="#377ACB"/>
+  <path d="M10 4h29v8H10z" fill="#E8F5E7"/>
+  <path d="M14 5h21v4H14z" fill="#334B62"/>
+  <path d="M6 44h27v17H0V50z" fill="#E8F5E7"/>
+  <path d="M0 59h35v9H0z" fill="#334B62"/>
+  <path d="M11 19h27v7H11zm0 15h27v7H11z" fill="#FFA657"/>
+  <path d="M17 18h7v9h-7zm0 15h7v9h-7z" fill="#FFE2A0"/>
+  <path d="m38 20 10-4 4 9v34H38z" fill="#FFA657"/>
+  <path d="m40 16 7-2 3 8H38zM36 55h18v10H36z" fill="#334B62"/>
+  <path d="m38 66 7 20 7-20z" fill="#73EAFA"/>
+  <path d="m41 66 4 12 4-12z" fill="#FFE2A0"/>
+ </g>
+ <g transform="translate(65 3) rotate(8 20 40)">
+  <path d="M11 7h24v44l-9 7H5V37h6z" fill="#377ACB"/>
+  <path d="M8 4h29v8H8z" fill="#E8F5E7"/>
+  <path d="M12 5h21v4H12z" fill="#334B62"/>
+  <path d="M4 44h27v17H-2V50z" fill="#E8F5E7"/>
+  <path d="M-2 59h35v9H-2z" fill="#334B62"/>
+  <path d="M9 19h27v7H9zm0 15h27v7H9z" fill="#FFA657"/>
+  <path d="M15 18h7v9h-7zm0 15h7v9h-7z" fill="#FFE2A0"/>
+  <path d="m36 20 10-4 4 9v34H36z" fill="#FFA657"/>
+  <path d="m38 16 7-2 3 8H36zM34 55h18v10H34z" fill="#334B62"/>
+  <path d="m36 66 7 20 7-20z" fill="#73EAFA"/>
+  <path d="m39 66 4 12 4-12z" fill="#FFE2A0"/>
+ </g>
+</svg>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100" fill="none" role="img" aria-label="Aspect of the End: faceted teal teleport sword">
+  <g transform="translate(30 89) rotate(66)">
+    <path d="M-5-43-11-60-7-157 0-201 7-157 11-60 5-43z" fill="#4DC9BD"/>
+    <path d="m0-201-7 44-4 97 11-9z" fill="#ACFFF0"/>
+    <path d="m0-201 7 44 4 97L0-69z" fill="#347E7E"/>
+    <path d="M0-201v132L11-60 7-157z" fill="#4DC9BD"/>
+    <path d="m-23-51 4-6 10 8 9 5 9-5 10-8 4 6-3 8-11 4H-9l-11-4z" fill="#789B91"/>
+    <path d="m-20-45-7-11 9-5 4 8zM20-45l7-11-9-5-4 8z" fill="#ACFFF0"/>
+    <path d="M-4-39H4v30H-4z" fill="#344649"/>
+    <path d="M-5-38H5v3H-5zm0 7H5v2H-5zm0 7H5v2H-5zm0 7H5v2H-5zm0 7H5v3H-5z" fill="#769095"/>
+    <path d="M0-8 7-2 0 7-7-2z" fill="#4DC9BD"/>
+    <path d="M0-8v15L-7-2z" fill="#ACFFF0"/>
+    <path d="m0-53 7 8-7 10-7-10z" fill="#233B3D"/>
+    <path d="m0-50 4 5-4 6-4-6z" fill="#ACFFF0"/>
+    <path d="m-2-74 2-5 2 5-2 5zm0-20 2-5 2 5-2 5zm0-20 2-5 2 5-2 5z" fill="#ACFFF0"/>
+  </g>
+</svg>

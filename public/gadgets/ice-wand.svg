@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="100" viewBox="0 0 120 100" fill="none" role="img" aria-label="Ice Spray Wand">
+ <path d="m18 83 55-53 5 6-55 53z" fill="#2874C6"/>
+ <path d="m17 82 16-16 7 7-16 16z" fill="#224768"/>
+ <path d="m20 80 3-3 7 7-3 3zm6-6 3-3 7 7-3 3z" fill="#F1FFFF"/>
+ <path d="m67 34 6-6 10 10-6 6z" fill="#F1FFFF"/>
+ <path d="M89 8v48M65 32h48M72 15l34 34M72 49l34-34" stroke="#ACFFFF" stroke-width="5" stroke-linecap="square"/>
+ <path d="m82 12 7 7 7-7M82 52l7-7 7 7M69 25l7 7-7 7m40-14-7 7 7 7M75 18l1 11-11-1m38-10-1 11 11-1M75 46l1-11-11 1m38 10-1-11 11 1" stroke="#F1FFFF" stroke-width="3"/>
+ <path d="m89 20 10 12-10 12-10-12z" fill="#66D8F2"/>
+ <path d="m89 20-10 12 10 12zM18 81l6 7-10 4-3-3z" fill="#ACFFFF"/>
+</svg>
