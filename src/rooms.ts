@@ -1,0 +1,2 @@
+export interface PublicRoom {code:string;name:string;arena:string;gameMode:string;players:number;}
+export async function directory(method='GET',body?:object){const response=await fetch('/api/rooms',{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(8000),keepalive:method==='DELETE'});const data=await response.json();if(!response.ok)throw Error(data.error||'Room directory unavailable.');return data;}

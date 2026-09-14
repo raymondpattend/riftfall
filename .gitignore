@@ -6,3 +6,10 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+.vercel
+.env*
+
+!.env.example
+.wrangler/
+
+.dev.vars*

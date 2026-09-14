@@ -533,14 +533,14 @@ describe('mana abilities and pickups', () => {
     expect(shooter).toMatchObject({ aotdCharges: 0, weapon: 'aote' });
   });
 
-  it('healing is capped at full health and respects its cooldown', () => {
+  it('disabled healing does not change health or mana', () => {
     const { simulation, shooter } = duel();
     Object.assign(shooter, { hp: 80, mana: 100 });
     simulation.action(shooter.id, { type: 'heal' });
-    expect(shooter).toMatchObject({ hp: 100, mana: 80 });
+    expect(shooter).toMatchObject({ hp: 80, mana: 100 });
     shooter.hp = 50;
     simulation.action(shooter.id, { type: 'heal' });
-    expect(shooter).toMatchObject({ hp: 50, mana: 80 });
+    expect(shooter).toMatchObject({ hp: 50, mana: 100 });
   });
 
   it('allows one shared pickup collection and restores it after its respawn timer', () => {
@@ -564,7 +564,6 @@ describe('match modifiers and ability defaults', () => {
   const abilities = [
     { label: 'AOTE', action: 'ability', weapon: 'aote', field: 'abilityUntil', cooldown: 0.22, cost: 15 },
     { label: 'grapple', action: 'grapple', weapon: 'rifle', field: 'grappleUntil', cooldown: 1.5, cost: 10 },
-    { label: 'heal', action: 'heal', weapon: 'rifle', field: 'healUntil', cooldown: 3, cost: 20 },
     { label: 'grenade', action: 'grenade', weapon: 'rifle', field: 'grenadeUntil', cooldown: 3.5, cost: 0 },
   ] as const;
 

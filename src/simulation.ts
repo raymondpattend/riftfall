@@ -1,3 +1,4 @@
+import {swordTarget} from './sword-launch';
 import type { ArenaAsset, ArenaId } from './world-types';
 import { BOT_NAMES,COLORS,TARGET_KILLS,MAX_PLAYERS,WEAPONS,WEAPON_IDS,clamp,direction,dist,newPlayer,PICKUP_COLORS } from './rules';
 import type {Player,Action,Movement,Snapshot,GameEvent,Vec3,Grenade,Field} from './rules';
@@ -6,21 +7,26 @@ import type {Body} from './physics';
 import {GROUND_LOOT,LOOT_LABELS} from './loot-rules';
 import {GADGETS,GADGET_IDS,isGadget} from './gadgets';
 import {sanitizeAppearance} from './cosmetics';
-import {GUN_GAME_STAGES,gunStage,weaponStats,stageIndexForKills} from './gun-game';
+import {GUN_GAME_STAGES,gunStage,weaponStats,stageIndexForKills,shuffledGunOrder} from './gun-game';
 import type {GameMode} from './gun-game';
 import {DEFAULT_MODIFIERS} from './modifiers';
 import type {Modifiers} from './modifiers';
 
+import {courseFor,platformAt,courseColliders,PARKOUR_LENGTH,CHECKPOINT_INTERVAL} from './parkour';
+
 interface Brain {body:Body;phase:number;nextThink:number;target:string;impulse?:Vec3;}
 export class Simulation {
+ gunOrder=shuffledGunOrder();
  modifiers:Modifiers={...DEFAULT_MODIFIERS};
- setModifiers(changes:Partial<Modifiers>){const next={...this.modifiers};for(const key of ['speed','jump','cooldownScale'] as const){const value=changes[key];if(typeof value==='number'&&Number.isFinite(value))next[key]=clamp(value,key==='cooldownScale'?.1:.5,key==='cooldownScale'?2:3);}for(const key of ['oneTap','instantRespawn','lowGravity','infiniteMana','extraJumps','fastReload','knockback','vampiric','shieldRegen','partyLoot'] as const)if(typeof changes[key]==='boolean')next[key]=changes[key]!;const grantParty=next.partyLoot&&!this.modifiers.partyLoot;this.modifiers=next;if(grantParty&&this.gameMode!=='gun-game')for(const p of this.players.values())if(p.hp>0&&!p.gadget)this.grantPartyRelic(p);if(next.infiniteMana)for(const p of this.players.values())p.mana=100;}
+ setModifiers(changes:Partial<Modifiers>){const next={...this.modifiers};for(const key of ['speed','jump','cooldownScale'] as const){const value=changes[key];if(typeof value==='number'&&Number.isFinite(value))next[key]=clamp(value,key==='cooldownScale'?.1:.5,key==='cooldownScale'?2:3);}for(const key of ['oneTap','instantRespawn','lowGravity','infiniteMana','extraJumps','fastReload','knockback','vampiric','shieldRegen','partyLoot'] as const)if(typeof changes[key]==='boolean')next[key]=changes[key]!;const grantParty=next.partyLoot&&!this.modifiers.partyLoot;this.modifiers=next;if(grantParty&&this.gameMode==='ffa')for(const p of this.players.values())if(p.hp>0&&!p.gadget)this.grantPartyRelic(p);if(next.infiniteMana)for(const p of this.players.values())p.mana=100;}
  private spendMana(p:Player,cost:number){if(!this.modifiers.infiniteMana)p.mana-=cost;}
  players=new Map<string,Player>();time=0;winner:string|null=null;round=1;
  pickups:Record<string,number>={};loot:Record<string,number>={};grenades:Grenade[]=[];fields:Field[]=[];events:GameEvent[]=[];
  nukeUnlocked=false;private recentDamage=new Map<string,Map<string,{at:number;attackerLife:number;targetLife:number}>>();
+ private lunges=new Map<string,{body:Body;target:string;life:number;targetLife:number;expires:number;weapon:Player['weapon'];stage:number|null;damage:number;source:string}>();
  private seq=0;private brains=new Map<string,Brain>();private spawnIndex=0;
- constructor(public arena:Pick<ArenaAsset,'colliders'|'spawns'|'pickups'|'jumpPads'|'loot'>,public arenaId:ArenaId='crown',public gameMode:GameMode='ffa'){}
+ constructor(public arena:Pick<ArenaAsset,'colliders'|'spawns'|'pickups'|'jumpPads'|'loot'|'courseSeed'>,public arenaId:ArenaId='crown',public gameMode:GameMode='ffa'){this.courseSeed=arena.courseSeed??Math.floor(Math.random()*0xffffffff);if(gameMode==='parkour')this.arena.colliders=courseColliders(arenaId,this.courseSeed);}
+ courseSeed:number;
  get groundLoot(){return this.arena.loot??GROUND_LOOT;}
  setAppearance(id:string,value:unknown){const p=this.players.get(id);if(p){p.appearance=sanitizeAppearance(value);p.color=p.appearance.accent;}}
  addPlayer(id:string,name:string,bot=false):Player|undefined {
@@ -31,15 +37,16 @@ export class Simulation {
   return p;
  }
  fillBots(total=5){while(this.players.size<total){let i=0;while(this.players.has(`bot-${i}`))i++;this.addPlayer(`bot-${i}`,BOT_NAMES[i%BOT_NAMES.length],true);}}
- removePlayer(id:string){this.players.delete(id);this.brains.delete(id);this.clearDamageHistory(id);}
+ removePlayer(id:string){this.players.delete(id);this.brains.delete(id);this.lunges.delete(id);this.clearDamageHistory(id);}
  makeRoom(){if(this.players.size>=MAX_PLAYERS){const b=[...this.players.values()].find(p=>p.bot);if(b)this.removePlayer(b.id);}}
  spawn(p:Player){
-  p.life++;this.clearDamageHistory(p.id);
+  p.life++;p.lunging=false;this.lunges.delete(p.id);this.clearDamageHistory(p.id);
   const others=[...this.players.values()].filter(v=>v.id!==p.id&&v.hp>0);
   const spawns=this.arena.spawns;
   let chosen=spawns[this.spawnIndex++%spawns.length];let best=-1;
   for(let i=0;i<spawns.length;i++){const s=spawns[(i+this.spawnIndex)%spawns.length];const distance=Math.min(80,...others.map(o=>dist(o,s)));if(distance>best){best=distance;chosen=s;}}
-  Object.assign(p,chosen,{hp:100,shield:50,mana:100,aoteOwned:false,aotdCharges:0,gadget:null,gadgetCharges:0,gadgetUntil:0,chilledUntil:0,lastHitAt:this.time,reloadDuration:0,weapon:!WEAPONS[p.weapon].mag?'rifle':p.weapon,deadUntil:0,protectedUntil:this.time+2.5,grounded:true,reloadUntil:0,reloading:null,nextFire:0,abilityUntil:0,healUntil:0,grappleUntil:0,grenadeUntil:0,hasteUntil:0});
+  if(this.gameMode==='parkour'){const course=courseFor(this.arenaId,this.courseSeed),at=course[p.checkpoint??0],next=course[Math.min(PARKOUR_LENGTH,(p.checkpoint??0)+1)];chosen={x:at.x,y:at.y,z:at.z,yaw:Math.atan2(at.x-next.x,at.z-next.z)};p.parkourStep??=0;p.checkpoint??=0;p.falls??=0;}
+  Object.assign(p,chosen,{hp:100,shield:50,mana:100,aoteOwned:false,aotdCharges:0,gadget:null,gadgetCharges:0,gadgetUntil:0,chilledUntil:0,lastHitAt:this.time,reloadDuration:0,weapon:!WEAPONS[p.weapon].mag?'rifle':p.weapon,deadUntil:0,protectedUntil:this.time+2.5,grounded:true,reloadUntil:0,reloading:null,nextFire:0,abilityUntil:0,lungeUntil:0,lunging:false,healUntil:0,grappleUntil:0,grenadeUntil:0,hasteUntil:0});
   p.ammo={rifle:30,shotgun:8,sniper:5,aote:0,aotd:0};p.warp++;if(this.gameMode==='gun-game')this.equipStage(p);else if(this.modifiers.partyLoot)this.grantPartyRelic(p);
   const brain=this.brains.get(p.id);if(brain){brain.impulse={x:0,y:0,z:0};Object.assign(brain.body,{x:p.x,y:p.y,z:p.z,vx:0,vy:0,vz:0});}
  }
@@ -48,15 +55,17 @@ export class Simulation {
   if(m.warp!==undefined&&m.warp!==p.warp)return;
   if(![m.x,m.y,m.z,m.yaw,m.pitch].every(Number.isFinite)||!WEAPON_IDS.includes(m.weapon))return;
   // A bounded casual-game movement envelope. The host owns combat and scoring.
-  if(Math.abs(m.x)>120||Math.abs(m.z)>120||m.y>240||m.y < -100)return;
+  if(Math.abs(m.x)>(this.gameMode==='parkour'?600:120)||Math.abs(m.z)>(this.gameMode==='parkour'?600:120)||m.y>240||m.y < -100)return;
   if(dist(p,m)>32)return;
-  const selected=this.gameMode==='gun-game'?GUN_GAME_STAGES[stageIndexForKills(p.kills)].weapon:m.weapon==='aotd'&&p.aotdCharges<1?(p.aoteOwned?'aote':'rifle'):m.weapon==='aote'&&!p.aoteOwned?'rifle':m.weapon;
+  if(p.lunging)return;
+  const selected=this.gameMode==='gun-game'?GUN_GAME_STAGES[this.gunOrder[stageIndexForKills(p.kills)]].weapon:m.weapon==='aotd'&&p.aotdCharges<1?(p.aoteOwned?'aote':'rifle'):m.weapon==='aote'&&!p.aoteOwned?'rifle':m.weapon;
   if(selected!==p.weapon){p.reloading=null;p.reloadUntil=0;}
   Object.assign(p,{x:m.x,y:m.y,z:m.z,yaw:m.yaw,pitch:clamp(m.pitch,-1.5,1.5),weapon:selected,grounded:m.grounded===true,focused:m.focused===true});
  }
  event(e:Omit<GameEvent,'id'>){this.events.push({...e,id:++this.seq});if(this.events.length>100)this.events.shift();}
  action(id:string,a:Action){
-  const p=this.players.get(id);if(!p||p.hp<=0||this.winner)return;
+  const p=this.players.get(id);if(!p||p.hp<=0||this.winner||p.lunging)return;
+  if(a.type==='heal'||this.gameMode==='parkour')return;
   if(this.modifiers.infiniteMana)p.mana=100;
   if(this.gameMode==='gun-game'&&['pickup','gadget','grenade'].includes(a.type))return;
   if(a.type==='pickup'){
@@ -72,6 +81,7 @@ export class Simulation {
   }
   if(a.type==='gadget'){this.useGadget(p);return;}
   if(a.type==='reload'){const w=weaponStats(p);if(w.mag&&p.ammo[p.weapon]<w.mag&&!p.reloading){p.reloading=p.weapon;p.reloadDuration=w.reload*(this.modifiers.fastReload?.35:1);p.reloadUntil=this.time+p.reloadDuration;}return;}
+  if(a.type==='lunge'){this.startLunge(p);return;}
   if(a.type==='fire'){this.fire(p);return;}
   if(a.type==='ability'){
    if(this.gameMode==='gun-game'&&!gunStage(p)?.teleport)return;
@@ -97,7 +107,6 @@ export class Simulation {
     this.consumeAotd(p);
    }return;
   }
-  if(a.type==='heal'&&p.healUntil<=this.time&&p.mana>=20&&p.hp<100){this.spendMana(p,20);p.hp=Math.min(100,p.hp+45);p.healUntil=this.time+3*this.modifiers.cooldownScale;this.event({type:'heal',from:id,position:{x:p.x,y:p.y+1,z:p.z},value:45,color:0x95e1ad});return;}
   if(a.type==='grapple'&&p.grappleUntil<=this.time&&p.mana>=10){
    const o={x:p.x,y:p.y+1.5,z:p.z},d=direction(p.yaw,p.pitch);const t=rayWorld(o,d,this.arena.colliders,28);
    if(t>=28||t<2){this.event({type:'grapple',from:id,text:'Aim the hook at a wall or tower within 28m.'});return;}
@@ -109,7 +118,7 @@ export class Simulation {
   }
  }
  private equipStage(p:Player){
-  const index=stageIndexForKills(p.kills),stage=GUN_GAME_STAGES[index];p.gunGameStage=index;p.weapon=stage.weapon;
+  const index=this.gunOrder[stageIndexForKills(p.kills)],stage=GUN_GAME_STAGES[index];p.gunGameStage=index;p.weapon=stage.weapon;
   p.ammo={rifle:0,shotgun:0,sniper:0,aote:0,aotd:0};p.ammo[stage.weapon]=stage.stats.mag;p.aoteOwned=stage.weapon==='aote';p.aotdCharges=0;p.gadget=null;p.gadgetCharges=0;p.reloading=null;p.reloadUntil=0;p.reloadDuration=0;p.abilityUntil=0;
  }
  private grantPartyRelic(p:Player){const choices=GADGET_IDS.filter(id=>id!=='nuke');p.gadget=choices[Math.floor(Math.random()*choices.length)];p.gadgetCharges=GADGETS[p.gadget].charges*2;p.gadgetUntil=0;}
@@ -159,6 +168,44 @@ export class Simulation {
    }
   }
  }
+ private startLunge(p:Player){
+  if(weaponStats(p).mag||p.lungeUntil>this.time||p.nextFire>this.time||p.reloading)return;
+  if(p.weapon==='aote'&&!p.aoteOwned||p.weapon==='aotd'&&p.aotdCharges<1)return;
+  const target=swordTarget(p,this.players.values(),this.arena.colliders);
+  if(!target){this.event({type:'lunge',from:p.id,text:'Aim at a visible opponent within 24m.'});return;}
+  const length=Math.max(.01,dist(p,target)),speed=32;
+  const body:Body={x:p.x,y:p.y,z:p.z,vx:(target.x-p.x)/length*speed,vy:(target.y-p.y)/length*speed,vz:(target.z-p.z)/length*speed,grounded:p.grounded,jumps:0};
+  this.lunges.set(p.id,{body,target:target.id,life:p.life,targetLife:target.life,expires:this.time+Math.min(.85,length/speed+.12),weapon:p.weapon,stage:p.gunGameStage,damage:weaponStats(p).damage,source:gunStage(p)?.id??p.weapon});
+  p.lunging=true;p.lungeUntil=this.time+1.2;p.nextFire=p.lungeUntil;p.protectedUntil=0;
+  this.event({type:'lunge',from:p.id,to:target.id,position:{x:p.x,y:p.y+1,z:p.z},end:{x:target.x,y:target.y+1,z:target.z}});
+ }
+ private updateLunges(dt:number){
+  for(const [id,launch] of this.lunges){
+   const p=this.players.get(id),target=this.players.get(launch.target);
+   const valid=p&&p.hp>0&&p.life===launch.life&&p.weapon===launch.weapon&&p.gunGameStage===launch.stage&&target&&target.hp>0&&target.life===launch.targetLife;
+   let strike=false,stopped=!valid||this.time>=launch.expires;
+   if(valid&&!stopped){
+    // Small slices prevent both wall tunnelling and skipping past an opponent.
+    for(let elapsed=0;elapsed<dt&&!stopped;elapsed+=.005){
+     const length=dist(launch.body,target),origin={x:launch.body.x,y:launch.body.y+1,z:launch.body.z};
+     const aim={x:(target.x-launch.body.x)/Math.max(.01,length),y:(target.y-launch.body.y)/Math.max(.01,length),z:(target.z-launch.body.z)/Math.max(.01,length)};
+     if(length<2&&rayWorld(origin,aim,this.arena.colliders,length)>=length-.05){strike=true;stopped=true;break;}
+     const before={x:launch.body.x,y:launch.body.y,z:launch.body.z};
+     stepBody(launch.body,Math.min(.005,dt-elapsed),this.arena.colliders,1.8,0);
+     if(dist(before,launch.body)<.001)stopped=true;
+    }
+    Object.assign(p,{x:launch.body.x,y:launch.body.y,z:launch.body.z,grounded:launch.body.grounded});
+   }
+   if(stopped){
+    this.lunges.delete(id);
+    if(!p||p.life!==launch.life)continue;
+    p.lunging=false;p.warp++;
+    this.event({type:'lunge',from:id,position:{x:p.x,y:p.y+1,z:p.z},text:'finished'});
+    if(strike&&target)this.damage(target,launch.damage,p,false,{source:launch.source});
+    if(launch.weapon==='aotd'&&p.hp>0)this.consumeAotd(p);
+   }
+  }
+ }
  private consumeAotd(p:Player){p.aotdCharges=0;p.weapon=p.aoteOwned?'aote':'rifle';this.event({type:'consume',from:p.id,text:'AOTD spent. Find another drop.'});}
  fire(p:Player){
   if(p.weapon==='aote'&&!p.aoteOwned)return;
@@ -193,6 +240,7 @@ export class Simulation {
   if(firedWeapon==='aotd')this.consumeAotd(p);
  }
  damage(target:Player,amount:number,attacker?:Player,headshot=false,options:{source?:string;credit?:boolean;record?:boolean;deferWin?:boolean}={}){
+  if(this.gameMode==='parkour')return;
   if(target.hp<=0||target.protectedUntil>this.time||this.winner)return;
   if(attacker?.bot&&!this.modifiers.oneTap&&options.source!=='nuke')amount=Math.min(amount*.5,12);
   const damage=Math.min(this.modifiers.oneTap&&amount>0?999:Math.round(amount),target.hp+target.shield);const absorbed=Math.min(target.shield,damage);target.shield-=absorbed;target.hp=Math.max(0,target.hp-(damage-absorbed));if(damage>0)target.lastHitAt=this.time;
@@ -209,7 +257,7 @@ export class Simulation {
   }
  }
  private clearDamageHistory(id:string){this.recentDamage.delete(id);for(const entries of this.recentDamage.values())entries.delete(id);}
- private checkNukeUnlock(){if(this.gameMode!=='gun-game'&&!this.nukeUnlocked&&[...this.players.values()].some(p=>p.kills>=10)){this.nukeUnlocked=true;this.event({type:'announcement',text:'NUKE DROP UNLOCKED',color:0xffc247});}}
+ private checkNukeUnlock(){if(this.gameMode==='ffa'&&!this.nukeUnlocked&&[...this.players.values()].some(p=>p.kills>=10)){this.nukeUnlocked=true;this.event({type:'announcement',text:'NUKE DROP UNLOCKED',color:0xffc247});}}
  private detonateNuke(g:Grenade){
   this.event({type:'explode',from:g.owner,position:{x:g.x,y:g.y,z:g.z},text:'nuke',color:0xffc247,value:26});
   const owner=this.players.get(g.owner);const victims=[...this.players.values()].filter(p=>p.hp>0&&dist(p,g)<=26);
@@ -219,12 +267,13 @@ export class Simulation {
   if(owner&&owner.kills>=TARGET_KILLS&&!this.winner){this.winner=owner.id;this.event({type:'end',from:owner.id});}
  }
  tick(dt:number){
-  this.time+=dt;if(this.winner)return;this.checkNukeUnlock();
+  this.time+=dt;if(this.winner)return;if(this.gameMode==='parkour'){const bounds=courseColliders(this.arenaId,this.courseSeed,this.time);bounds.forEach((b,i)=>Object.assign(this.arena.colliders[i],b));}this.updateLunges(dt);this.checkNukeUnlock();
   for(const p of this.players.values()){
    if(p.hp<=0){if(this.time>=p.deadUntil)this.spawn(p);continue;}
    p.mana=this.modifiers.infiniteMana?100:Math.min(100,p.mana+16*dt);
    if(this.modifiers.shieldRegen&&this.time-p.lastHitAt>=5)p.shield=Math.min(100,p.shield+8*dt);
    if(p.reloading&&p.reloadUntil<=this.time){p.ammo[p.reloading]=weaponStats(p).mag;p.reloading=null;p.reloadUntil=0;}
+   if(this.gameMode==='parkour'){this.updateParkour(p);continue;}
    if(p.y < -22)this.damage(p,999);
    for(const item of this.arena.pickups){
     if((this.pickups[item.id]||0)>this.time||dist({x:p.x,y:p.y+.8,z:p.z},item)>1.7)continue;
@@ -252,8 +301,18 @@ export class Simulation {
  }
  updateBots(dt:number){
   for(const [id,brain] of this.brains){
-   const p=this.players.get(id)!;if(p.hp<=0)continue;const b=brain.body;
+   const p=this.players.get(id)!;if(p.hp<=0||p.lunging)continue;const b=brain.body;
    if(dist(b,p)>1.5)Object.assign(b,{x:p.x,y:p.y,z:p.z,vx:0,vy:0,vz:0});
+   if(this.gameMode==='parkour'){
+    const route=courseFor(this.arenaId,this.courseSeed),standing=route[p.parkourStep??0];if(b.grounded)b.x+=platformAt(standing,this.time).x-platformAt(standing,this.time-dt).x;
+    const target=platformAt(route[Math.min(PARKOUR_LENGTH,(p.parkourStep??0)+1)],this.time),dx=target.x-b.x,dz=target.z-b.z,len=Math.hypot(dx,dz);
+    p.yaw=Math.atan2(-dx,-dz);
+    if(b.grounded&&this.time>=brain.nextThink){b.vy=9;b.jumps=1;b.grounded=false;brain.nextThink=this.time+1.5+Math.random()*2;brain.phase=Math.random()*2-1;}
+    if(!b.grounded&&b.jumps===1&&b.vy<1){b.jumps=2;if(Math.random()<.3)b.vy=10;}
+    b.vx=dx/Math.max(.1,len)*6+brain.phase*1.6;b.vz=dz/Math.max(.1,len)*6;
+    if(b.grounded&&this.time<brain.nextThink){b.vx=0;b.vz=0;}
+    stepBody(b,dt,this.arena.colliders);Object.assign(p,{x:b.x,y:b.y,z:b.z,grounded:b.grounded});this.updateParkour(p);continue;
+   }
    const eye={x:p.x,y:p.y+1.5,z:p.z};
    const targets=[...this.players.values()].filter(t=>t.id!==id&&t.hp>0&&t.protectedUntil<=this.time).sort((a,c)=>dist(p,a)-dist(p,c));
    let target=targets.find(t=>{const len=dist(eye,{x:t.x,y:t.y+1.1,z:t.z});const d={x:(t.x-eye.x)/len,y:(t.y+1.1-eye.y)/len,z:(t.z-eye.z)/len};return rayWorld(eye,d,this.arena.colliders,len+.1)>len-.3;});
@@ -269,7 +328,7 @@ export class Simulation {
     const ahead={x:b.x+b.vx*.2,y:b.y,z:b.z+b.vz*.2};
     if(blocked(ahead,this.arena.colliders)&&b.grounded){b.vy=9*this.modifiers.jump;b.grounded=false;b.jumps=1;}
     if(Math.abs(b.x)>39)b.vx=-Math.sign(b.x)*6;if(Math.abs(b.z)>39)b.vz=-Math.sign(b.z)*6;
-    if(sees&&r<65&&this.time>=brain.nextThink){if(this.gameMode!=='gun-game')p.weapon=r<7?'shotgun':'rifle';p.yaw+=Math.sin(this.time*3+brain.phase)*.075;p.pitch+=Math.cos(this.time*2+brain.phase)*.035;this.action(id,{type:'fire'});brain.nextThink=this.time+.3+Math.random()*.3;}
+    if(sees&&r<65&&this.time>=brain.nextThink){if(this.gameMode==='ffa')p.weapon=r<7?'shotgun':'rifle';p.yaw+=Math.sin(this.time*3+brain.phase)*.075;p.pitch+=Math.cos(this.time*2+brain.phase)*.035;this.action(id,{type:'fire'});brain.nextThink=this.time+.3+Math.random()*.3;}
     if(p.ammo[p.weapon]===0)this.action(id,{type:'reload'});
    }else {b.vx=0;b.vz=0;}
    for(const pad of this.arena.jumpPads){if(b.grounded&&Math.hypot(b.x-pad.x,b.z-pad.z)<pad.radius&&Math.abs(b.y-pad.y)<.5){b.vy=pad.power*Math.sqrt(this.modifiers.jump);b.grounded=false;}}
@@ -277,6 +336,16 @@ export class Simulation {
    stepBody(b,dt,this.arena.colliders,1.8,this.modifiers.lowGravity?9:22);Object.assign(p,{x:b.x,y:b.y,z:b.z,grounded:b.grounded});
   }
  }
- snapshot():Snapshot{return {time:this.time,arenaId:this.arenaId,gameMode:this.gameMode,nukeUnlocked:this.nukeUnlocked,players:[...this.players.values()].map(p=>({...p,appearance:{...p.appearance},ammo:{...p.ammo}})),pickups:{...this.pickups},loot:{...this.loot},modifiers:{...this.modifiers},grenades:this.grenades.map(g=>({...g})),fields:this.fields.map(f=>({...f})),winner:this.winner,round:this.round,events:[...this.events]};}
- restart(){this.winner=null;this.nukeUnlocked=false;this.recentDamage.clear();this.round++;this.grenades=[];this.fields=[];this.events=[];this.pickups={};this.loot={};for(const p of this.players.values()){p.kills=0;p.deaths=0;this.spawn(p);}}
+ private updateParkour(p:Player){
+  if(this.winner)return;
+  const course=courseFor(this.arenaId,this.courseSeed),step=p.parkourStep??0,next=course[step+1]?platformAt(course[step+1],this.time):null;
+  if(next&&p.grounded&&Math.abs(p.y-next.y)<.15&&Math.abs(p.x-next.x)<next.width/2&&Math.abs(p.z-next.z)<next.depth/2){
+   p.parkourStep=step+1;
+   if(next.isCheckpoint){p.checkpoint=step+1;this.event({type:'announcement',from:p.id,text:`${p.name}: checkpoint ${(step+1)/CHECKPOINT_INTERVAL} / ${PARKOUR_LENGTH/CHECKPOINT_INTERVAL}`});}
+   if(step+1===PARKOUR_LENGTH){this.winner=p.id;this.event({type:'end',from:p.id});return;}
+  }
+  if(p.y<course[p.checkpoint??0].y-5){p.falls=(p.falls??0)+1;p.parkourStep=p.checkpoint??0;this.spawn(p);}
+ }
+ snapshot():Snapshot{return {time:this.time,arenaId:this.arenaId,gameMode:this.gameMode,gunOrder:[...this.gunOrder],courseSeed:this.courseSeed,nukeUnlocked:this.nukeUnlocked,players:[...this.players.values()].map(p=>({...p,appearance:{...p.appearance},ammo:{...p.ammo}})),pickups:{...this.pickups},loot:{...this.loot},modifiers:{...this.modifiers},grenades:this.grenades.map(g=>({...g})),fields:this.fields.map(f=>({...f})),winner:this.winner,round:this.round,events:[...this.events]};}
+ restart(){this.courseSeed=(this.courseSeed+1)>>>0;if(this.gameMode==='parkour')this.arena.colliders=courseColliders(this.arenaId,this.courseSeed);this.gunOrder=shuffledGunOrder();this.winner=null;this.nukeUnlocked=false;this.recentDamage.clear();this.round++;this.grenades=[];this.fields=[];this.events=[];this.pickups={};this.loot={};for(const p of this.players.values()){p.kills=0;p.deaths=0;p.parkourStep=0;p.checkpoint=0;p.falls=0;this.spawn(p);}}
 }

@@ -1,0 +1,15 @@
+{
+ "$schema":"node_modules/wrangler/config-schema.json",
+ "name":"riftfall",
+ "account_id":"ca1671773bf22af5ab8d70dffc33267b",
+ "main":"worker/index.ts",
+ "compatibility_date":"2026-09-12",
+ "workers_dev":true,
+ "preview_urls":false,
+ "assets":{"directory":"./dist","binding":"ASSETS","not_found_handling":"single-page-application","run_worker_first":["/api/*"]},
+ "durable_objects":{"bindings":[{"name":"GAMES","class_name":"GameRoom"},{"name":"SIGNALS","class_name":"RoomSignals"},{"name":"DIRECTORY","class_name":"RoomDirectory"}]},
+ "migrations":[{"tag":"v1","new_sqlite_classes":["RoomSignals","RoomDirectory"]},{"tag":"v2-game-server","new_sqlite_classes":["GameRoom"]}],
+ "ratelimits":[{"name":"SESSION_LIMIT","namespace_id":"26091201","simple":{"limit":30,"period":60}},{"name":"READ_LIMIT","namespace_id":"26091202","simple":{"limit":120,"period":60}}],
+ "observability":{"enabled":true,"head_sampling_rate":0.05},
+ "dev":{"port":8787}
+}

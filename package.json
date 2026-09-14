@@ -5,22 +5,26 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/server-arenas.mjs && tsc -b && tsc -p tsconfig.worker.json && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:browser": "node tests/browser-check.mjs",
     "test:relic-network": "node tests/relic-network-check.mjs",
     "test:expansion": "node tests/expansion-browser-check.mjs",
     "test:cosmetics": "node tests/cosmetics-browser-check.mjs",
-    "test:gun-game": "node tests/gun-game-browser-check.mjs"
+    "test:gun-game": "node tests/gun-game-browser-check.mjs",
+    "dev:worker": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "test:social": "node tests/social-browser-check.mjs",
+    "test:cloudflare": "node tests/cloudflare-api-check.mjs && node tests/cloudflare-browser-check.mjs"
   },
   "dependencies": {
-    "peerjs": "^1.5.5",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260911.1",
     "@playwright/test": "^1.55.0",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
@@ -28,6 +32,8 @@
     "@vitejs/plugin-react": "^5.0.3",
     "typescript": "~5.9.2",
     "vite": "^7.1.7",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.131.1",
+    "esbuild": "0.28.2"
   }
 }

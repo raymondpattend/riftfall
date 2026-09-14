@@ -252,12 +252,15 @@ export function createAvatar(color: number, appearance?: Appearance): {
       // Stage blades are authored along +Y. Carry them forward and slightly down.
       stageWeapon.rotation.set(-Math.PI / 2 - 0.23, -0.12, 0);
     } else stageWeapon.position.copy(gun.position);
+    stageWeapon.position.y=stage>=16?1.04:1.075;
     body.add(stageWeapon);
   };
 
+  let swapAt=-10;
   const update = (time: number, speed: number, grounded: boolean, weapon: WeaponId, gunGameStage?: number | null) => {
     const stage = typeof gunGameStage === 'number' && Number.isFinite(gunGameStage)
       ? Math.max(0, Math.min(19, Math.floor(gunGameStage))) : null;
+    if(previousWeapon!==null&&(stage!==previousStage||weapon!==previousWeapon))swapAt=time;
     if (stage !== previousStage) {
       previousStage = stage;
       replaceStageWeapon(stage);
@@ -292,6 +295,15 @@ export function createAvatar(color: number, appearance?: Appearance): {
       guard.scale.x = weapon === 'aotd' ? 1.3 : 1;
       blade.scale.y = weapon === 'aotd' ? 1.15 : 1;
     }
+    const equipMotion=Math.sin(Math.PI*Math.max(0,Math.min(1,(time-swapAt)/.6)));
+    group.userData.swapMotion=equipMotion;
+    arms[0].rotation.x-=equipMotion*.95;arms[1].rotation.x+=equipMotion*.85;
+    for(const held of [gun,sword,stageWeapon])if(held){
+      held.userData.carryY??=held.position.y;held.userData.carryZ??=held.rotation.z;
+      held.position.y=(held===gun?1.075:held.userData.carryY)-equipMotion*.48;
+      held.rotation.z=held.userData.carryZ+equipMotion*.95;
+    }
+
   };
   update(0, 0, true, 'rifle');
   return { group, update, setName, setAppearance };

@@ -1,0 +1,18 @@
+{
+  "framework": null,
+  "buildCommand": null,
+  "installCommand": null,
+  "outputDirectory": "public",
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "https://riftfall.narroorg.workers.dev/",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "destination": "https://riftfall.narroorg.workers.dev/:path*",
+      "permanent": true
+    }
+  ]
+}

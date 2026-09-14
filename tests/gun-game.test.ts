@@ -6,6 +6,8 @@ import type {Player} from '../src/rules';
 
 function fixture(){
  const sim=new Simulation({colliders:[{minX:-100,maxX:100,minY:-2,maxY:0,minZ:-100,maxZ:100}],spawns:[{x:0,y:0,z:0,yaw:0},{x:40,y:0,z:40,yaw:0}],pickups:[],jumpPads:[],loot:[{id:'rifle',kind:'rifle',x:0,y:0,z:0},{id:'aote',kind:'aote',x:0,y:0,z:0},{id:'nuke',kind:'nuke',x:0,y:0,z:0}]},'glacier','gun-game');
+ // Keep weapon-specific legacy checks deterministic; shuffled rounds are tested separately.
+ sim.gunOrder=GUN_GAME_STAGES.map((_,i)=>i);
  const player=sim.addPlayer('host','Host')!,rival=sim.addPlayer('rival','Rival')!;
  aim(player,rival);return {sim,player,rival};
 }
@@ -31,7 +33,7 @@ describe('Gun Game authoritative ladder',()=>{
   const {sim,player,rival}=fixture();player.kills=13;sim.spawn(player);player.protectedUntil=0;
   sim.damage(player,999,rival);expect(player.kills).toBe(13);sim.spawn(player);
   expect(player.gunGameStage).toBe(13);expect(player.weapon).toBe('shotgun');expect(player.ammo.shotgun).toBe(4);
-  sim.restart();expect(player.kills).toBe(0);expect(player.gunGameStage).toBe(0);expect(player.ammo.rifle).toBe(12);expect(sim.gameMode).toBe('gun-game');
+  sim.restart();expect(player.kills).toBe(0);expect(player.gunGameStage).toBe(sim.gunOrder[0]);expect(player.ammo[player.weapon]).toBe(weaponStats(player).mag);expect(sim.gameMode).toBe('gun-game');
  });
  it('does not advance on self-damage or a fall',()=>{
   const {sim,player}=fixture();sim.damage(player,999,player);expect(player.kills).toBe(0);expect(player.gunGameStage).toBe(0);
@@ -49,8 +51,8 @@ describe('Gun Game authoritative ladder',()=>{
   sim.action(player.id,{type:'grenade'});player.gadget='bonzo_staff';player.gadgetCharges=1;sim.action(player.id,{type:'gadget'});
   expect(sim.grenades).toHaveLength(0);expect(sim.fields).toHaveLength(0);
  });
- it('retains healing and only grants teleport at the End Sword stage',()=>{
-  const {sim,player}=fixture();player.hp=30;sim.action(player.id,{type:'heal'});expect(player.hp).toBe(75);
+ it('disables healing and only grants teleport at the End Sword stage',()=>{
+  const {sim,player}=fixture();player.hp=30;sim.action(player.id,{type:'heal'});expect(player.hp).toBe(30);
   for(const index of [16,17,19]){player.kills=index;sim.spawn(player);Object.assign(player,{x:0,y:0,z:0,yaw:0,pitch:0});sim.action(player.id,{type:'ability'});expect(player.z).toBe(0);}
   player.kills=18;sim.spawn(player);Object.assign(player,{x:0,y:0,z:0,yaw:0,pitch:0});sim.action(player.id,{type:'ability'});expect(player.z).toBeLessThan(-8);expect(player.mana).toBe(85);
  });

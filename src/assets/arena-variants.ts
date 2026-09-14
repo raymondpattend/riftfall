@@ -1,10 +1,13 @@
 import * as THREE from 'three';
+import {createParkourArena} from './parkour-arena';
 import { createArena } from './arena';
 import type { ArenaAsset, ArenaId, Collider, JumpPad, PickupPoint, SpawnPoint } from '../world-types';
 import { GROUND_LOOT } from '../loot-rules';
 import type { GroundLootPoint } from '../loot-rules';
 
 export const ARENAS: Array<{ id: ArenaId; name: string; description: string; color: number }> = [
+  { id: 'sky-steps', name: 'Sky Steps', description: '64 randomized jumps through rising islands, beams and moving ledges.', color: 0x8fbdac },
+  { id: 'switchback', name: 'Switchback', description: '64 twisting jumps, narrow landings and long gaps. New route each round.', color: 0xcbb59b },
   { id: 'crown', name: 'The Crown', description: 'Floating courtyards, rooftop routes and the original rift.', color: 0x54bc3d },
   { id: 'foundry', name: 'Skyforge Foundry', description: 'A catwalk circuit surrounds a climbable central furnace.', color: 0xf38836 },
   { id: 'glacier', name: 'Glacier Run', description: 'Two bridges span an ice canyon between snowy ridges.', color: 0x6dd7f1 },
@@ -281,7 +284,8 @@ function dunes(): ArenaAsset {
   );
 }
 
-export function createArenaFor(id: ArenaId): ArenaAsset {
+export function createArenaFor(id: ArenaId,seed=1): ArenaAsset {
+  if(id==='sky-steps'||id==='switchback')return createParkourArena(id,seed);
   if (id === 'foundry') return foundry();
   if (id === 'glacier') return glacier();
   if (id === 'dunes') return dunes();

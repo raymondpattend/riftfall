@@ -10,7 +10,7 @@ interface Detonation {
   plumes: THREE.Mesh<THREE.DodecahedronGeometry, THREE.MeshStandardMaterial>[];
 }
 
-/** Three shared draw calls for hit shards, shot tracers, and expanding ability rings. */
+/** Bounded shared draw calls for hit shards, thick shot tracers and ability rings. */
 export class CombatEffects {
   private readonly maxParticles = 192;
   private readonly maxTraces = 48;
@@ -20,10 +20,9 @@ export class CombatEffects {
   private readonly waves: Wave[] = [];
   private readonly detonations: Detonation[] = [];
   private readonly shards: THREE.InstancedMesh;
-  private readonly lines: THREE.LineSegments;
+  private readonly lines: THREE.InstancedMesh;
+  private readonly cores: THREE.InstancedMesh;
   private readonly rings: THREE.InstancedMesh;
-  private readonly positions: Float32Array;
-  private readonly colors: Float32Array;
   private readonly dummy = new THREE.Object3D();
   private readonly color = new THREE.Color();
   private disposed = false;
@@ -39,15 +38,11 @@ export class CombatEffects {
     this.shards.count = 0;
     this.shards.frustumCulled = false;
 
-    this.positions = new Float32Array(this.maxTraces * 6);
-    this.colors = new Float32Array(this.maxTraces * 6);
-    const traceGeometry = new THREE.BufferGeometry();
-    traceGeometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
-    traceGeometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3).setUsage(THREE.DynamicDrawUsage));
-    traceGeometry.setDrawRange(0, 0);
-    this.lines = new THREE.LineSegments(traceGeometry, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-    this.lines.name = 'Shot tracers';
-    this.lines.frustumCulled = false;
+    const traceGeometry=new THREE.CylinderGeometry(1,1,1,6);
+    this.lines=new THREE.InstancedMesh(traceGeometry,new THREE.MeshBasicMaterial({color:0xffffff,depthWrite:false,toneMapped:false,fog:false}),this.maxTraces);
+    this.cores=new THREE.InstancedMesh(traceGeometry,new THREE.MeshBasicMaterial({color:0xfffae5,depthWrite:false,toneMapped:false,fog:false}),this.maxTraces);
+    this.lines.name='Shot tracers';this.cores.name='Bullet cores';
+    for(const mesh of [this.lines,this.cores]){mesh.count=0;mesh.frustumCulled=false;mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);}
 
     this.rings = new THREE.InstancedMesh(
       new THREE.RingGeometry(0.96, 1, 48),
@@ -58,7 +53,7 @@ export class CombatEffects {
     this.rings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.rings.count = 0;
     this.rings.frustumCulled = false;
-    scene.add(this.shards, this.lines, this.rings);
+    scene.add(this.shards, this.lines, this.cores, this.rings);
   }
 
   burst(position: THREE.Vector3, color: number, count = 12): void {
@@ -85,7 +80,7 @@ export class CombatEffects {
   tracer(from: THREE.Vector3, to: THREE.Vector3, color = 0xffe8b6): void {
     if (this.disposed) return;
     if (this.traces.length >= this.maxTraces) this.traces.shift();
-    this.traces.push({ from: from.clone(), to: to.clone(), color: new THREE.Color(color), life: 0.095 });
+    this.traces.push({ from: from.clone(), to: to.clone(), color: new THREE.Color(color), life: 0.18 });
   }
 
   ring(position: THREE.Vector3, color: number, radius = 3): void {
@@ -198,17 +193,18 @@ export class CombatEffects {
       this.traces[i].life -= delta;
       if (this.traces[i].life <= 0) this.traces.splice(i, 1);
     }
-    for (let i = 0; i < this.traces.length; i++) {
-      const t = this.traces[i];
-      t.from.toArray(this.positions, i * 6);
-      t.to.toArray(this.positions, i * 6 + 3);
-      this.color.copy(t.color).multiplyScalar(t.life / 0.095);
-      this.color.toArray(this.colors, i * 6);
-      this.color.toArray(this.colors, i * 6 + 3);
+    this.lines.count=this.cores.count=this.traces.length;
+    for(let i=0;i<this.traces.length;i++){
+      const t=this.traces[i], direction=t.to.clone().sub(t.from), length=direction.length();
+      this.dummy.position.copy(t.from).lerp(t.to,.5);
+      this.dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());
+      const width=.035*Math.min(1,t.life/.07);
+      this.dummy.scale.set(width,length,width);this.dummy.updateMatrix();this.lines.setMatrixAt(i,this.dummy.matrix);
+      this.color.copy(t.color).lerp(new THREE.Color(0xffb34d),.6);this.lines.setColorAt(i,this.color);
+      this.dummy.scale.set(width*.36,length,width*.36);this.dummy.updateMatrix();this.cores.setMatrixAt(i,this.dummy.matrix);
     }
-    this.lines.geometry.setDrawRange(0, this.traces.length * 2);
-    this.lines.geometry.getAttribute('position').needsUpdate = true;
-    this.lines.geometry.getAttribute('color').needsUpdate = true;
+    this.lines.instanceMatrix.needsUpdate=true;this.cores.instanceMatrix.needsUpdate=true;
+    if(this.lines.instanceColor)this.lines.instanceColor.needsUpdate=true;
 
     for (let i = this.waves.length - 1; i >= 0; i--) {
       this.waves[i].life -= delta;
@@ -233,13 +229,13 @@ export class CombatEffects {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const object of [this.shards, this.lines, this.rings]) {
+    for (const object of [this.shards, this.lines, this.cores, this.rings]) {
       this.scene.remove(object);
       object.geometry.dispose();
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();
     }
-    this.shards.dispose();
+    this.shards.dispose();this.lines.dispose();this.cores.dispose();
     this.rings.dispose();
     this.particles.length = 0;
     this.traces.length = 0;

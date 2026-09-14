@@ -2,14 +2,14 @@ import {WEAPONS,clamp} from './rules';
 import type {Player} from './rules';
 import type {WeaponId} from './world-types';
 
-export type GameMode='ffa'|'gun-game';
+export type GameMode='ffa'|'gun-game'|'parkour';
 type WeaponStats=(typeof WEAPONS)[WeaponId];
 export interface GunStage {
  id:string; weapon:WeaponId; category:string; stats:WeaponStats;
  headshotDamage:number; recoil:number; teleport:boolean;
 }
 function stage(id:string,weapon:WeaponId,name:string,category:string,stats:Partial<WeaponStats>,recoil:number,headshotDamage=999,teleport=false):GunStage {
- return {id,weapon,category,recoil,headshotDamage,teleport,stats:{...WEAPONS[weapon],name,short:category,ability:weapon==='sniper'?'Ctrl: scope · click: fire':weapon==='aote'?(teleport?'V / right click: teleport · 15 mana':'Left click: swing'):'Shift: focus · R: reload',...stats}};
+ return {id,weapon,category,recoil,headshotDamage,teleport,stats:{...WEAPONS[weapon],name,short:category,ability:weapon==='sniper'?'Ctrl: scope · click: fire':weapon==='aote'?(teleport?'Aim + click: launch · V: teleport':'Aim + click: launch · Left click: swing'):'Left Ctrl / right click: focus · R: reload',...stats}};
 }
 
 // Every stage changes the handling as well as the model. Kills, not deaths, move this ladder.
@@ -43,3 +43,9 @@ export function gunStage(player:Pick<Player,'gunGameStage'>|null|undefined){
 }
 export const weaponStats=(player:Player)=>gunStage(player)?.stats??WEAPONS[player.weapon];
 export const gunGameIcon=(stage:GunStage)=>`/weapons/gun-game/${stage.id}.svg`;
+
+export function shuffledGunOrder(random= Math.random):number[]{
+ const guns=Array.from({length:16},(_,i)=>i);
+ for(let i=15;i>0;i--){const j=Math.floor(random()*(i+1));[guns[i],guns[j]]=[guns[j],guns[i]];}
+ return [...guns,16,17,18,19];
+}
