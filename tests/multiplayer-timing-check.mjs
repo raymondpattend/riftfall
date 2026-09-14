@@ -13,7 +13,7 @@ try{
    const connect=async(greeting)=>{
     const id=crypto.randomUUID(),url=new URL('/api/game/'+room,location.href);url.protocol='ws:';url.search=new URLSearchParams({id,token:crypto.randomUUID()});
     const ws=new WebSocket(url),c={id,ws,snapshot:null,lastIn:0,lastOut:0,n:0};
-    ws.onmessage=e=>{const message=JSON.parse(e.data);if(message.type!=='snapshot')return;const now=performance.now(),at=Math.max(c.lastIn,now+rtt/2+(c.n++%3)*5);c.lastIn=at;setTimeout(()=>c.snapshot=message.snapshot,at-now);};
+    ws.onmessage=e=>{const message=JSON.parse(e.data);if(message.type!=='snapshot')return;const now=performance.now(),at=Math.max(c.lastIn,now+rtt/2+(c.n++%3)*5);c.lastIn=at;setTimeout(()=>{c.snapshot=message.snapshot;if(message.delivery!==undefined&&ws.readyState===1)ws.send(JSON.stringify({type:'snapshot-ack',delivery:message.delivery}));},at-now);};
     await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});ws.send(JSON.stringify(greeting));await until(()=>c.snapshot?.players.some(p=>p.id===id));return c;
    };
    const a=await connect({type:'create',options:{name:'Timing host',bots:0,arena:mode==='parkour'?'sky-steps':'crown',gameMode:mode,modifiers:{}}}),b=await connect({type:'hello',name:'Timing guest'});

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 interface Particle { position: THREE.Vector3; velocity: THREE.Vector3; color: THREE.Color; life: number; duration: number; size: number; spin: number; }
-interface Trace { from: THREE.Vector3; to: THREE.Vector3; color: THREE.Color; life: number; }
+interface Trace {fresh:boolean;commandSeq?:number; from: THREE.Vector3; to: THREE.Vector3; color: THREE.Color; life: number; }
 interface Wave { position: THREE.Vector3; color: THREE.Color; life: number; radius: number; }
 interface Detonation {
   group: THREE.Group; life: number; radius: number;
@@ -77,11 +77,13 @@ export class CombatEffects {
     }
   }
 
-  tracer(from: THREE.Vector3, to: THREE.Vector3, color = 0xffe8b6): void {
+  tracer(from: THREE.Vector3, to: THREE.Vector3, color = 0xffe8b6, commandSeq?:number): void {
     if (this.disposed) return;
     if (this.traces.length >= this.maxTraces) this.traces.shift();
-    this.traces.push({ from: from.clone(), to: to.clone(), color: new THREE.Color(color), life: 0.18 });
+    this.traces.push({ fresh:true, commandSeq, from: from.clone(), to: to.clone(), color: new THREE.Color(color), life: 0.18 });
   }
+
+  cancelShot(seq:number):void {for(let i=this.traces.length-1;i>=0;i--)if(this.traces[i].commandSeq===seq)this.traces.splice(i,1);}
 
   ring(position: THREE.Vector3, color: number, radius = 3): void {
     if (this.disposed) return;
@@ -190,7 +192,7 @@ export class CombatEffects {
     if (this.shards.instanceColor) this.shards.instanceColor.needsUpdate = true;
 
     for (let i = this.traces.length - 1; i >= 0; i--) {
-      this.traces[i].life -= delta;
+      if(!this.traces[i].fresh)this.traces[i].life -= delta;this.traces[i].fresh=false;
       if (this.traces[i].life <= 0) this.traces.splice(i, 1);
     }
     this.lines.count=this.cores.count=this.traces.length;

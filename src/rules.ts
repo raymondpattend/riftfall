@@ -24,7 +24,7 @@ export interface Player extends Vec3 {
 }
 export type Action = {type:'fire'} | {type:'lunge'} | {type:'reload'} | {type:'ability'} | {type:'grenade'} | {type:'heal'} | {type:'grapple'} | {type:'pickup'} | {type:'gadget'};
 export interface Movement extends Vec3 {yaw:number;pitch:number;weapon:WeaponId;grounded:boolean;focused?:boolean;warp?:number;}
-export interface GameEvent {id:number;type:'lunge'|'shot'|'hit'|'kill'|'teleport'|'blast'|'heal'|'pickup'|'grenade'|'explode'|'grapple'|'jump'|'consume'|'push'|'gadget'|'announcement'|'end';from?:string;to?:string;position?:Vec3;end?:Vec3;color?:number;value?:number;text?:string;headshot?:boolean;pellet?:number;variant?:number;}
+export interface GameEvent {id:number;commandSeq?:number;type:'lunge'|'shot'|'hit'|'kill'|'teleport'|'blast'|'heal'|'pickup'|'grenade'|'explode'|'grapple'|'jump'|'consume'|'push'|'gadget'|'announcement'|'end';from?:string;to?:string;position?:Vec3;end?:Vec3;color?:number;value?:number;text?:string;headshot?:boolean;pellet?:number;variant?:number;}
 export interface Grenade extends Vec3 {id:number;owner:string;vx:number;vy:number;vz:number;expires:number;kind?:'bonzo'|'nuke';}
 export interface Field extends Vec3 {id:number;owner:string;kind:'gravity_orb'|'healing_totem';expires:number;nextPulse:number;radius:number;}
 export interface Snapshot {time:number;arenaId?:ArenaId;gameMode?:GameMode;gunOrder?:number[];courseSeed?:number;nukeUnlocked?:boolean;players:Player[];pickups:Record<string,number>;loot?:Record<string,number>;modifiers?:Modifiers;grenades:Grenade[];fields?:Field[];winner:string|null;round:number;events:GameEvent[];}

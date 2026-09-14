@@ -1,6 +1,6 @@
 import {historicalPosition,MAX_REWIND} from './timeline';
 import {advanceMotion,motionAt,validInput,INPUT_STEP,type MoveInput} from './movement';
-import type {Command} from './protocol';
+import type {Command,CommandResult} from './protocol';
 import {swordTarget} from './sword-launch';
 import type { ArenaAsset, ArenaId } from './world-types';
 import { BOT_NAMES,COLORS,TARGET_KILLS,MAX_PLAYERS,WEAPONS,WEAPON_IDS,clamp,direction,dist,newPlayer,PICKUP_COLORS } from './rules';
@@ -27,7 +27,9 @@ export class Simulation {
  pickups:Record<string,number>={};loot:Record<string,number>={};grenades:Grenade[]=[];fields:Field[]=[];events:GameEvent[]=[];
  nukeUnlocked=false;private recentDamage=new Map<string,Map<string,{at:number;attackerLife:number;targetLife:number}>>();
  private lunges=new Map<string,{body:Body;target:string;life:number;targetLife:number;expires:number;weapon:Player['weapon'];stage:number|null;damage:number;source:string}>();
- private pendingCommands=new Map<string,Command[]>();
+ onResult?:(result:CommandResult)=>void;onEvent?:(event:GameEvent)=>void;
+ private activeCommand:number|undefined;
+ private pendingCommands=new Map<string,(Command&{receivedAt:number;stage?:number|null})[]>();
  private hitHistory:Pick<Snapshot,'time'|'players'>[]=[];private shotTime:number|null=null;
  private controls=new Map<string,{queue:MoveInput[];received:number;command:number;credit:number;warp:number}>();
  private seq=0;private brains=new Map<string,Brain>();private spawnIndex=0;
@@ -62,7 +64,7 @@ export class Simulation {
   if(![m.x,m.y,m.z,m.yaw,m.pitch].every(Number.isFinite)||!WEAPON_IDS.includes(m.weapon))return;
   if(p.lunging)return;
   const selected=this.gameMode==='gun-game'?GUN_GAME_STAGES[this.gunOrder[stageIndexForKills(p.kills)]].weapon:m.weapon==='aotd'&&p.aotdCharges<1?(p.aoteOwned?'aote':'rifle'):m.weapon==='aote'&&!p.aoteOwned?'rifle':m.weapon;
-  if(selected!==p.weapon){p.reloading=null;p.reloadUntil=0;}
+  if(selected!==p.weapon){p.reloading=null;p.reloadUntil=0;p.nextFire=Math.min(p.nextFire,this.time+.32);this.cancelShots(id,'weapon changed',selected);}
   Object.assign(p,{yaw:m.yaw,pitch:clamp(m.pitch,-1.5,1.5),weapon:selected,focused:m.focused===true});
  }
  inputs(id:string,inputs:MoveInput[]){
@@ -71,18 +73,32 @@ export class Simulation {
   if(c.warp!==p.warp){p.motion=motionAt(p);c.queue=[];c.credit=0;c.warp=p.warp;}
   for(const i of inputs){if(!validInput(i)||!WEAPON_IDS.includes(i.weapon)||i.warp!==p.warp||i.seq<=c.received||c.queue.length>=30)continue;c.received=i.seq;c.queue.push({...i});}
  }
+ private result(id:string,c:Command,status:CommandResult['status'],reason:string,receivedAt=this.time){this.onResult?.({id,seq:c.seq,receivedAt,resolvedAt:this.time,status,reason});}
+ private cancelShots(id:string,reason:string,keepWeapon?:Player['weapon']){const queue=this.pendingCommands.get(id);if(!queue)return;for(let i=queue.length-1;i>=0;i--)if(queue[i].action.type==='fire'&&queue[i].weapon!==keepWeapon){const c=queue.splice(i,1)[0];this.result(id,c,'rejected',reason,c.receivedAt);}}
  command(id:string,c:Command){
-  const p=this.players.get(id);if(!p||!c||!Number.isSafeInteger(c.inputSeq)||c.inputSeq<0||!Number.isSafeInteger(c.seq)||c.seq<=0||c.warp!==p.warp||![c.at,c.viewAt,c.yaw,c.pitch].every(Number.isFinite)||c.at>this.time+.05||this.time-c.at>.4||c.viewAt>c.at||c.at-c.viewAt>.15||Math.abs(c.pitch)>1.5||Math.abs(c.yaw)>1e6||!WEAPON_IDS.includes(c.weapon)||typeof c.focused!=='boolean'||!c.action||!['fire','lunge','reload','ability','grenade','grapple','pickup','gadget'].includes(c.action.type))return;
-  this.inputs(id,[]);const state=this.controls.get(id)!;if(c.seq<=state.command)return;state.command=c.seq;
-  const queued=this.pendingCommands.get(id)??[];if(queued.length>=8)return;queued.push({...c,action:{...c.action}});this.pendingCommands.set(id,queued);this.flushCommands(id);
+  const p=this.players.get(id);if(!p||!c||!Number.isSafeInteger(c.seq)||c.seq<=0)return;
+  if(c.stage!==undefined&&c.stage!==p.gunGameStage||!Number.isSafeInteger(c.inputSeq)||c.inputSeq<0||c.warp!==p.warp||![c.at,c.viewAt,c.yaw,c.pitch].every(Number.isFinite)||c.at>this.time+.15||c.viewAt<0||c.viewAt>Math.min(c.at,this.time+.15)||c.at-c.viewAt>MAX_REWIND+.15||Math.abs(c.pitch)>1.5||Math.abs(c.yaw)>1e6||!WEAPON_IDS.includes(c.weapon)||typeof c.focused!=='boolean'||!c.action||!['fire','lunge','reload','ability','grenade','grapple','pickup','gadget'].includes(c.action.type)){this.result(id,c,'rejected','invalid command');return;}
+  if(this.time-c.at>.4){this.result(id,c,'expired','command too old');return;}
+  this.inputs(id,[]);const state=this.controls.get(id)!;if(c.seq<=state.command){this.result(id,c,'rejected','replayed command');return;}state.command=c.seq;
+  // A later action cancels the single buffered fire, without bypassing its input dependency.
+  if(c.action.type!=='fire')this.cancelShots(id,'cancelled by '+c.action.type);
+  const queued=this.pendingCommands.get(id)??[];
+  if(queued.length>=8||c.action.type==='fire'&&queued.some(q=>q.action.type==='fire')){this.result(id,c,'rejected','command buffer full');return;}
+  queued.push({...c,action:{...c.action},receivedAt:this.time,stage:p.gunGameStage});this.pendingCommands.set(id,queued);this.flushCommands(id);
  }
  private flushCommands(id:string){
   const p=this.players.get(id),queue=this.pendingCommands.get(id);if(!p||!queue)return;
-  while(queue.length){const c=queue[0];if(c.warp!==p.warp||this.time-c.at>.4||p.hp<=0){queue.shift();continue;}
-  if((p.ack??0)<c.inputSeq)break;
-  if(c.action.type==='fire'&&p.nextFire>this.time)break;queue.shift();
-  this.movement(id,{...p,yaw:c.yaw,pitch:c.pitch,weapon:c.weapon,focused:c.focused,warp:c.warp});
-  this.shotTime=Math.max(this.time-MAX_REWIND,c.viewAt);try{this.action(id,c.action);}finally{this.shotTime=null;}
+  while(queue.length){const c=queue[0];
+   if(c.warp!==p.warp||p.hp<=0||this.winner||p.lunging||c.stage!==p.gunGameStage){queue.shift();this.result(id,c,'rejected','player state changed',c.receivedAt);continue;}
+   if(this.time-c.receivedAt>.4||this.time-c.at>.4){queue.shift();this.result(id,c,'expired','input or cooldown wait expired',c.receivedAt);continue;}
+   if((p.ack??0)<c.inputSeq)break;
+   if(c.action.type==='fire'&&c.weapon===p.weapon&&p.nextFire>this.time)break;
+   queue.shift();this.movement(id,{...p,yaw:c.yaw,pitch:c.pitch,weapon:c.weapon,focused:c.focused,warp:c.warp});
+   const before=this.seq,oldReload=p.reloading;
+   this.shotTime=clamp(c.viewAt,this.time-MAX_REWIND,this.time);this.activeCommand=c.seq;
+   try{this.action(id,c.action);}finally{this.shotTime=null;this.activeCommand=undefined;}
+   const accepted=c.action.type==='fire'?this.events.some(e=>e.id>before&&e.type==='shot'&&e.from===id):c.action.type==='reload'?!!p.reloading&&!oldReload:true;
+   this.result(id,c,accepted?'accepted':'rejected',accepted?'executed':p.reloading?'reloading':'action unavailable',c.receivedAt);
   }
  }
  private moveHumans(dt:number){
@@ -103,7 +119,7 @@ export class Simulation {
    }
   }
  }
- event(e:Omit<GameEvent,'id'>){this.events.push({...e,id:++this.seq});if(this.events.length>100)this.events.shift();}
+ event(e:Omit<GameEvent,'id'>){const event={...e,commandSeq:this.activeCommand,id:++this.seq};this.events.push(event);this.onEvent?.(event);if(this.events.length>100)this.events.shift();}
  action(id:string,a:Action){
   const p=this.players.get(id);if(!p||p.hp<=0||this.winner||p.lunging)return;
   if(a.type==='heal'||this.gameMode==='parkour')return;
@@ -392,5 +408,5 @@ export class Simulation {
   if(p.y<course[p.checkpoint??0].y-5){p.falls=(p.falls??0)+1;p.parkourStep=p.checkpoint??0;this.spawn(p);}
  }
  snapshot():Snapshot{for(const [id,c] of this.controls){const p=this.players.get(id);if(p&&c.warp!==p.warp){p.motion=motionAt(p);c.queue=[];c.credit=0;c.warp=p.warp;}}return {time:this.time,arenaId:this.arenaId,gameMode:this.gameMode,gunOrder:[...this.gunOrder],courseSeed:this.courseSeed,nukeUnlocked:this.nukeUnlocked,players:[...this.players.values()].map(p=>({...p,motion:p.motion?structuredClone(p.motion):undefined,appearance:{...p.appearance},ammo:{...p.ammo}})),pickups:{...this.pickups},loot:{...this.loot},modifiers:{...this.modifiers},grenades:this.grenades.map(g=>({...g})),fields:this.fields.map(f=>({...f})),winner:this.winner,round:this.round,events:[...this.events]};}
- restart(){this.hitHistory=[];this.pendingCommands.clear();this.courseSeed=(this.courseSeed+1)>>>0;if(this.gameMode==='parkour')this.arena.colliders=courseColliders(this.arenaId,this.courseSeed);this.gunOrder=shuffledGunOrder();this.winner=null;this.nukeUnlocked=false;this.recentDamage.clear();this.round++;this.grenades=[];this.fields=[];this.events=[];this.pickups={};this.loot={};for(const p of this.players.values()){p.kills=0;p.deaths=0;p.parkourStep=0;p.checkpoint=0;p.falls=0;this.spawn(p);}}
+ restart(){this.hitHistory=[];for(const [id,queue] of this.pendingCommands)for(const c of queue)this.result(id,c,'rejected','round restarted',c.receivedAt);this.pendingCommands.clear();this.courseSeed=(this.courseSeed+1)>>>0;if(this.gameMode==='parkour')this.arena.colliders=courseColliders(this.arenaId,this.courseSeed);this.gunOrder=shuffledGunOrder();this.winner=null;this.nukeUnlocked=false;this.recentDamage.clear();this.round++;this.grenades=[];this.fields=[];this.events=[];this.pickups={};this.loot={};for(const p of this.players.values()){p.kills=0;p.deaths=0;p.parkourStep=0;p.checkpoint=0;p.falls=0;this.spawn(p);}}
 }

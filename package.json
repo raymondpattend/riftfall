@@ -8,6 +8,7 @@
     "build": "node scripts/server-arenas.mjs && tsc -b && tsc -p tsconfig.worker.json && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "test:shot-delay": "node tests/shot-delay-browser.mjs",
     "test:browser": "node tests/browser-check.mjs",
     "test:relic-network": "node tests/relic-network-check.mjs",
     "test:expansion": "node tests/expansion-browser-check.mjs",

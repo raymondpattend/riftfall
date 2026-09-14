@@ -1,3 +1,4 @@
+import {SnapshotDelivery} from '../src/snapshot-delivery';
 import {FixedClock} from '../src/fixed-clock';
 import {DurableObject} from 'cloudflare:workers';
 import {Simulation} from '../src/simulation';
@@ -7,7 +8,7 @@ import type {Packet,ChatEntry,RoomOptions} from '../src/protocol';
 import type {Env} from './index';
 import arenas from './arenas.json';
 
-type Session={id:string;token:string;lastSeen:number;window:number;count:number;chat:number[];admitted:boolean};
+type Session={delivery:SnapshotDelivery;id:string;token:string;lastSeen:number;window:number;count:number;chat:number[];admitted:boolean};
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
 const clean=(value:unknown,length:number)=>typeof value==='string'?value.replace(/[\x00-\x1f\x7f]/g,' ').trim().slice(0,length):'';
 const digest=async(value:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');
@@ -32,7 +33,7 @@ export class GameRoom extends DurableObject<Env> {
   if([...this.sessions.values()].some(s=>s.id===id))return json({error:'Session already connected.'},409);
   const pair=new WebSocketPair(),client=pair[0],server=pair[1];server.accept();
   this.code=url.pathname.split('/').at(-1)!;
-  this.sessions.set(server,{id,token,lastSeen:Date.now(),window:Date.now(),count:0,chat:[],admitted:false});
+  this.sessions.set(server,{delivery:new SnapshotDelivery(),id,token,lastSeen:Date.now(),window:Date.now(),count:0,chat:[],admitted:false});
   server.addEventListener('message',event=>this.message(server,event.data));
   server.addEventListener('close',()=>this.leave(server));server.addEventListener('error',()=>this.leave(server));
   if(!this.timer){this.lastTick=performance.now();this.timer=setInterval(()=>this.tick(),50);}
@@ -40,7 +41,7 @@ export class GameRoom extends DurableObject<Env> {
  }
  private send(ws:WebSocket,packet:Packet){try{ws.send(JSON.stringify(packet));}catch{this.leave(ws);}}
  private broadcast(packet:Packet){for(const [ws,s] of this.sessions)if(s.admitted)this.send(ws,packet);}
- private snapshot(){if(this.sim)this.broadcast({type:'snapshot',snapshot:this.sim.snapshot()});}
+ private snapshot(){if(!this.sim)return;const snapshot=this.sim.snapshot();for(const [ws,s] of this.sessions)if(s.admitted){if(s.delivery.expired(performance.now())){this.reject(ws,'Connection fell behind. Join the room again.');continue;}const packet=s.delivery.next(snapshot,performance.now());if(packet)this.send(ws,packet);}}
  private notice(text:string){const entry:ChatEntry={id:crypto.randomUUID(),name:'',text,system:true};this.broadcast({type:'room-message',entry});}
  private reject(ws:WebSocket,message:string){this.send(ws,{type:'error',message});ws.close(1008,message.slice(0,100));this.leave(ws);}
  private message(ws:WebSocket,raw:unknown){
@@ -48,7 +49,7 @@ export class GameRoom extends DurableObject<Env> {
   if(typeof raw!=='string'||raw.length>16384){this.reject(ws,'Invalid game message.');return;}
   const now=Date.now();s.lastSeen=now;if(now-s.window>=1000){s.window=now;s.count=0;}if(++s.count>100){this.reject(ws,'Too many game messages.');return;}
   let p;try{p=JSON.parse(raw);}catch{this.reject(ws,'Invalid game message.');return;}if(!p||typeof p!=='object')return;
-  if(p.type==='ping'&&Number.isFinite(p.at)){this.send(ws,{type:'pong',at:p.at});return;}
+  if(p.type==='ping'&&Number.isFinite(p.at)){this.send(ws,{type:'pong',at:p.at,serverTime:this.sim?.time});return;}
   if(!s.admitted){
    if(p.type!=='create'&&p.type!=='hello')return;
    if(p.type==='create'){
@@ -59,6 +60,8 @@ export class GameRoom extends DurableObject<Env> {
     const seed=crypto.getRandomValues(new Uint32Array(1))[0],start=courseFor(id,seed)[0];
     const arena=isParkourArena(id)?{courseSeed:seed,colliders:courseColliders(id,seed),spawns:[{x:start.x,y:start.y,z:start.z,yaw:0}],pickups:[],jumpPads:[],loot:[]}:structuredClone(arenas[id as keyof typeof arenas]);
     this.sim=new Simulation(arena as ConstructorParameters<typeof Simulation>[0],id,mode);if(o.modifiers&&typeof o.modifiers==='object')this.sim.setModifiers(o.modifiers);
+    this.sim.onEvent=event=>{for(const session of this.sessions.values())if(session.admitted)session.delivery.event(event);};
+    this.sim.onResult=result=>{for(const session of this.sessions.values())if(session.id===result.id)session.delivery.result(result);};
     this.owner=s.id;p.name=o.name;p.appearance=o.appearance;
     this.sim.addPlayer(s.id,clean(p.name,18)||'Wanderer');
     this.sim.fillBots(Math.min(5,Math.max(0,Math.floor(Number(o.bots)||0)))+1);
@@ -69,11 +72,12 @@ export class GameRoom extends DurableObject<Env> {
    s.admitted=true;this.sim!.setAppearance(s.id,p.appearance);this.broadcast({type:'owner',id:this.owner});this.snapshot();this.notice(`${this.sim!.players.get(s.id)!.name} joined the arena.`);return;
   }
   const sim=this.sim;if(!sim)return;
+  if(p.type==='snapshot-ack'){s.delivery.ack(p.delivery);return;}
   if(p.type==='inputs')sim.inputs(s.id,p.inputs);
   else if(p.type==='command')sim.command(s.id,p.command);
   else if(p.type==='appearance')sim.setAppearance(s.id,p.appearance);
   else if(p.type==='modifiers'&&s.id===this.owner&&p.modifiers&&typeof p.modifiers==='object')sim.setModifiers(p.modifiers);
-  else if(p.type==='restart'&&s.id===this.owner)sim.restart();
+  else if(p.type==='restart'&&s.id===this.owner){for(const session of this.sessions.values())session.delivery.clearEvents();sim.restart();}
   else if(p.type==='chat'){
    const text=clean(p.text,240);s.chat=s.chat.filter(at=>now-at<5000);if(!text||s.chat.length>=5)return;s.chat.push(now);
    this.broadcast({type:'room-message',entry:{id:crypto.randomUUID(),name:sim.players.get(s.id)!.name,text,system:false}});

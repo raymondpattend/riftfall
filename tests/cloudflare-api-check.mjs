@@ -12,7 +12,7 @@ try{
   const connect=async(room,greeting)=>{
    const id=crypto.randomUUID(),token=crypto.randomUUID(),url=new URL('/api/game/'+room,location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';url.search=new URLSearchParams({id,token});
    const ws=new WebSocket(url),c={id,token,ws,messages:[],snapshot:null};
-   ws.onmessage=e=>{const p=JSON.parse(e.data);c.messages.push(p);if(p.type==='snapshot')c.snapshot=p.snapshot;};
+   ws.onmessage=e=>{const p=JSON.parse(e.data);c.messages.push(p);if(p.type==='snapshot'){c.snapshot=p.snapshot;if(p.delivery!==undefined)ws.send(JSON.stringify({type:'snapshot-ack',delivery:p.delivery}));}};
    await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});ws.send(JSON.stringify(greeting));return c;
   };
   const send=(c,p)=>c.ws.send(JSON.stringify(p));
