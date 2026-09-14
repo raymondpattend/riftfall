@@ -73,7 +73,7 @@ describe('pocket relic inventory', () => {
       gadget: 'bonzo_staff', gadgetCharges: 999, gadgetUntil: 0, chilledUntil: 0,
       modifiers: { partyLoot: true, fastReload: true } } as unknown as Movement;
     simulation.movement(owner.id, movement);
-    expect(owner).toMatchObject({ x: 0.5, gadget: 'ice_wand', gadgetCharges: 1, gadgetUntil: 10, chilledUntil: 7 });
+    expect(owner).toMatchObject({ x: 0, gadget: 'ice_wand', gadgetCharges: 1, gadgetUntil: 10, chilledUntil: 7 });
     expect(simulation.modifiers).toMatchObject({ partyLoot: false, fastReload: false });
   });
 

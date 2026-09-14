@@ -17,6 +17,7 @@ export const WEAPON_IDS = Object.keys(WEAPONS) as WeaponId[];
 export const PICKUP_COLORS:Record<PickupKind,number> = {health:0xe89080,shield:0xa4d5df,mana:0x7bd6bd,haste:0xf5d388};
 export interface Vec3 {x:number;y:number;z:number;}
 export interface Player extends Vec3 {
+ motion?:import('./movement').Motion;ack?:number;
  id:string;name:string;yaw:number;pitch:number;hp:number;shield:number;mana:number;kills:number;deaths:number;
  parkourStep?:number;checkpoint?:number;falls?:number;weapon:WeaponId;gunGameStage:number|null;aoteOwned:boolean;aotdCharges:number;appearance:Appearance;life:number;gadget:GadgetId|null;gadgetCharges:number;gadgetUntil:number;chilledUntil:number;lastHitAt:number;reloadDuration:number;grounded:boolean;focused:boolean;bot:boolean;color:number;deadUntil:number;protectedUntil:number;warp:number;
  ammo:Record<WeaponId,number>;reloadUntil:number;reloading:WeaponId|null;nextFire:number;abilityUntil:number;lungeUntil:number;lunging:boolean;grenadeUntil:number;healUntil:number;grappleUntil:number;hasteUntil:number;

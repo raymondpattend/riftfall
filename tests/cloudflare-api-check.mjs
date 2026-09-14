@@ -25,9 +25,9 @@ try{
    send(b,{type:'modifiers',modifiers:{speed:3}});send(b,{type:'restart'});send(b,{type:'snapshot',snapshot:{winner:b.id}});await wait(150);
    check(b.snapshot.modifiers.speed===1&&b.snapshot.round===1&&!b.snapshot.winner,'Guest cannot forge authoritative state');
    send(a,{type:'modifiers',modifiers:{speed:2}});await until(()=>b.snapshot.modifiers.speed===2);
-   const me=b.snapshot.players.find(p=>p.id===b.id);send(b,{type:'move',movement:{...me,x:me.x+.25}});await until(()=>Math.abs(b.snapshot.players.find(p=>p.id===b.id).x-me.x)>.1);
+   const me=b.snapshot.players.find(p=>p.id===b.id);send(b,{type:'inputs',inputs:Array.from({length:12},(_,n)=>({seq:n+1,warp:me.warp,forward:0,strafe:1,yaw:0,pitch:0,weapon:me.weapon,sprint:false,focused:false,jump:false,slide:false}))});await until(()=>Math.abs(b.snapshot.players.find(p=>p.id===b.id).x-me.x)>.1);
    if(gameMode!=='parkour'){
-    send(b,{type:'action',action:{type:'fire'}});await until(()=>b.snapshot.players.find(p=>p.id===b.id).ammo.rifle<30||b.snapshot.events.some(e=>e.from===b.id));
+    send(b,{type:'command',command:{inputSeq:12,seq:1,warp:me.warp,at:b.snapshot.time,viewAt:b.snapshot.time,yaw:0,pitch:0,weapon:me.weapon,focused:false,action:{type:'fire'}}});await until(()=>b.snapshot.players.find(p=>p.id===b.id).ammo.rifle<30||b.snapshot.events.some(e=>e.from===b.id));
    }
    send(b,{type:'chat',text:'Cloudflare server chat'});await until(()=>a.messages.some(p=>p.type==='room-message'&&p.entry.text==='Cloudflare server chat'));
    a.ws.close();await until(()=>b.messages.some(p=>p.type==='owner'&&p.id===b.id));const time=b.snapshot.time;await wait(200);check(b.snapshot.time>time,'Match survives creator disconnect');

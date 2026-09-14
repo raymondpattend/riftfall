@@ -497,7 +497,7 @@ describe('mana abilities and pickups', () => {
     expect(shooter.mana).toBe(85);
   });
 
-  it('accepts new movement after the client acknowledges the AOTE teleport snapshot', () => {
+  it('accepts aim but ignores claimed positions after teleport', () => {
     const { simulation, shooter } = duel();
     Object.assign(shooter, { weapon: 'aote', aoteOwned: true, yaw: 0 });
     simulation.action(shooter.id, { type: 'ability' });
@@ -505,7 +505,7 @@ describe('mana abilities and pickups', () => {
     const movement: Movement = { x: acknowledged.x + 0.5, y: acknowledged.y, z: acknowledged.z - 0.5,
       yaw: 0.3, pitch: -0.1, weapon: 'aote', grounded: false, warp: acknowledged.warp };
     simulation.movement(shooter.id, movement);
-    expect(shooter).toMatchObject(movement);
+    expect(shooter).toMatchObject({yaw:movement.yaw,pitch:movement.pitch,warp:movement.warp});
     expect(shooter.mana).toBe(85);
   });
 
@@ -767,7 +767,7 @@ describe('room state', () => {
       hp: 999, kills: 19, shield: 999, mana: 999, id: 'another-player', ammo: { rifle: 999 }, aotdCharges: 999, aoteOwned: true,
       modifiers: { speed: 3, jump: 3, oneTap: true, infiniteMana: true } } as unknown as Movement;
     simulation.movement(shooter.id, packet);
-    expect(shooter.x).toBe(1);
+    expect(shooter.x).toBe(0);
     expect(shooter).toMatchObject({ id: 'shooter', hp: 100, shield: 50, mana: 100, kills: 0, aotdCharges: 0, aoteOwned: false });
     expect(shooter.ammo.rifle).toBe(30);
     expect(simulation.modifiers).toMatchObject({ speed: 1, jump: 1, oneTap: false, infiniteMana: false });

@@ -1,3 +1,4 @@
+import {FixedClock} from '../src/fixed-clock';
 import {DurableObject} from 'cloudflare:workers';
 import {Simulation} from '../src/simulation';
 import {courseFor,courseColliders,isParkourArena} from '../src/parkour';
@@ -14,6 +15,7 @@ export class GameRoom extends DurableObject<Env> {
  private sim:Simulation|null=null;
  private sessions=new Map<WebSocket,Session>();
  private owner='';private code='';private timer:ReturnType<typeof setInterval>|undefined;
+ private clock=new FixedClock();
  private lastTick=0;private listing=false;private listingAt=0;private listingOwner='';
  async fetch(request:Request){
   const url=new URL(request.url);
@@ -33,7 +35,7 @@ export class GameRoom extends DurableObject<Env> {
   this.sessions.set(server,{id,token,lastSeen:Date.now(),window:Date.now(),count:0,chat:[],admitted:false});
   server.addEventListener('message',event=>this.message(server,event.data));
   server.addEventListener('close',()=>this.leave(server));server.addEventListener('error',()=>this.leave(server));
-  if(!this.timer){this.lastTick=Date.now();this.timer=setInterval(()=>this.tick(),50);}
+  if(!this.timer){this.lastTick=performance.now();this.timer=setInterval(()=>this.tick(),50);}
   return new Response(null,{status:101,webSocket:client});
  }
  private send(ws:WebSocket,packet:Packet){try{ws.send(JSON.stringify(packet));}catch{this.leave(ws);}}
@@ -43,7 +45,7 @@ export class GameRoom extends DurableObject<Env> {
  private reject(ws:WebSocket,message:string){this.send(ws,{type:'error',message});ws.close(1008,message.slice(0,100));this.leave(ws);}
  private message(ws:WebSocket,raw:unknown){
   const s=this.sessions.get(ws);if(!s)return;
-  if(typeof raw!=='string'||raw.length>4096){this.reject(ws,'Invalid game message.');return;}
+  if(typeof raw!=='string'||raw.length>16384){this.reject(ws,'Invalid game message.');return;}
   const now=Date.now();s.lastSeen=now;if(now-s.window>=1000){s.window=now;s.count=0;}if(++s.count>100){this.reject(ws,'Too many game messages.');return;}
   let p;try{p=JSON.parse(raw);}catch{this.reject(ws,'Invalid game message.');return;}if(!p||typeof p!=='object')return;
   if(p.type==='ping'&&Number.isFinite(p.at)){this.send(ws,{type:'pong',at:p.at});return;}
@@ -67,8 +69,8 @@ export class GameRoom extends DurableObject<Env> {
    s.admitted=true;this.sim!.setAppearance(s.id,p.appearance);this.broadcast({type:'owner',id:this.owner});this.snapshot();this.notice(`${this.sim!.players.get(s.id)!.name} joined the arena.`);return;
   }
   const sim=this.sim;if(!sim)return;
-  if(p.type==='move'&&p.movement&&typeof p.movement==='object')sim.movement(s.id,p.movement);
-  else if(p.type==='action'&&p.action&&typeof p.action.type==='string')sim.action(s.id,p.action);
+  if(p.type==='inputs')sim.inputs(s.id,p.inputs);
+  else if(p.type==='command')sim.command(s.id,p.command);
   else if(p.type==='appearance')sim.setAppearance(s.id,p.appearance);
   else if(p.type==='modifiers'&&s.id===this.owner&&p.modifiers&&typeof p.modifiers==='object')sim.setModifiers(p.modifiers);
   else if(p.type==='restart'&&s.id===this.owner)sim.restart();
@@ -78,9 +80,9 @@ export class GameRoom extends DurableObject<Env> {
   }
  }
  private tick(){
-  const now=Date.now(),dt=Math.min(.1,(now-this.lastTick)/1000);this.lastTick=now;
+  const now=Date.now(),tickAt=performance.now(),dt=Math.min(.5,Math.max(0,(tickAt-this.lastTick)/1000));this.lastTick=tickAt;
   for(const [ws,s] of this.sessions)if(now-s.lastSeen>(s.admitted?30000:10000)){ws.close(1001,'Session timed out');this.leave(ws);}
-  if(this.sim){this.sim.tick(dt);this.snapshot();}
+  if(this.sim){this.clock.advance(dt,step=>this.sim?.tick(step));this.snapshot();}
   if(this.listing&&now-this.listingAt>30000){this.listingAt=now;this.ctx.waitUntil(this.updateListing());}
  }
  private leave(ws:WebSocket){

@@ -1,3 +1,6 @@
+import {historicalPosition,MAX_REWIND} from './timeline';
+import {advanceMotion,motionAt,validInput,INPUT_STEP,type MoveInput} from './movement';
+import type {Command} from './protocol';
 import {swordTarget} from './sword-launch';
 import type { ArenaAsset, ArenaId } from './world-types';
 import { BOT_NAMES,COLORS,TARGET_KILLS,MAX_PLAYERS,WEAPONS,WEAPON_IDS,clamp,direction,dist,newPlayer,PICKUP_COLORS } from './rules';
@@ -24,6 +27,9 @@ export class Simulation {
  pickups:Record<string,number>={};loot:Record<string,number>={};grenades:Grenade[]=[];fields:Field[]=[];events:GameEvent[]=[];
  nukeUnlocked=false;private recentDamage=new Map<string,Map<string,{at:number;attackerLife:number;targetLife:number}>>();
  private lunges=new Map<string,{body:Body;target:string;life:number;targetLife:number;expires:number;weapon:Player['weapon'];stage:number|null;damage:number;source:string}>();
+ private pendingCommands=new Map<string,Command[]>();
+ private hitHistory:Pick<Snapshot,'time'|'players'>[]=[];private shotTime:number|null=null;
+ private controls=new Map<string,{queue:MoveInput[];received:number;command:number;credit:number;warp:number}>();
  private seq=0;private brains=new Map<string,Brain>();private spawnIndex=0;
  constructor(public arena:Pick<ArenaAsset,'colliders'|'spawns'|'pickups'|'jumpPads'|'loot'|'courseSeed'>,public arenaId:ArenaId='crown',public gameMode:GameMode='ffa'){this.courseSeed=arena.courseSeed??Math.floor(Math.random()*0xffffffff);if(gameMode==='parkour')this.arena.colliders=courseColliders(arenaId,this.courseSeed);}
  courseSeed:number;
@@ -37,7 +43,7 @@ export class Simulation {
   return p;
  }
  fillBots(total=5){while(this.players.size<total){let i=0;while(this.players.has(`bot-${i}`))i++;this.addPlayer(`bot-${i}`,BOT_NAMES[i%BOT_NAMES.length],true);}}
- removePlayer(id:string){this.players.delete(id);this.brains.delete(id);this.lunges.delete(id);this.clearDamageHistory(id);}
+ removePlayer(id:string){this.players.delete(id);this.controls.delete(id);this.pendingCommands.delete(id);this.brains.delete(id);this.lunges.delete(id);this.clearDamageHistory(id);}
  makeRoom(){if(this.players.size>=MAX_PLAYERS){const b=[...this.players.values()].find(p=>p.bot);if(b)this.removePlayer(b.id);}}
  spawn(p:Player){
   p.life++;p.lunging=false;this.lunges.delete(p.id);this.clearDamageHistory(p.id);
@@ -47,20 +53,55 @@ export class Simulation {
   for(let i=0;i<spawns.length;i++){const s=spawns[(i+this.spawnIndex)%spawns.length];const distance=Math.min(80,...others.map(o=>dist(o,s)));if(distance>best){best=distance;chosen=s;}}
   if(this.gameMode==='parkour'){const course=courseFor(this.arenaId,this.courseSeed),at=course[p.checkpoint??0],next=course[Math.min(PARKOUR_LENGTH,(p.checkpoint??0)+1)];chosen={x:at.x,y:at.y,z:at.z,yaw:Math.atan2(at.x-next.x,at.z-next.z)};p.parkourStep??=0;p.checkpoint??=0;p.falls??=0;}
   Object.assign(p,chosen,{hp:100,shield:50,mana:100,aoteOwned:false,aotdCharges:0,gadget:null,gadgetCharges:0,gadgetUntil:0,chilledUntil:0,lastHitAt:this.time,reloadDuration:0,weapon:!WEAPONS[p.weapon].mag?'rifle':p.weapon,deadUntil:0,protectedUntil:this.time+2.5,grounded:true,reloadUntil:0,reloading:null,nextFire:0,abilityUntil:0,lungeUntil:0,lunging:false,healUntil:0,grappleUntil:0,grenadeUntil:0,hasteUntil:0});
-  p.ammo={rifle:30,shotgun:8,sniper:5,aote:0,aotd:0};p.warp++;if(this.gameMode==='gun-game')this.equipStage(p);else if(this.modifiers.partyLoot)this.grantPartyRelic(p);
+  p.motion=motionAt(p);p.ammo={rifle:30,shotgun:8,sniper:5,aote:0,aotd:0};p.warp++;if(this.gameMode==='gun-game')this.equipStage(p);else if(this.modifiers.partyLoot)this.grantPartyRelic(p);
   const brain=this.brains.get(p.id);if(brain){brain.impulse={x:0,y:0,z:0};Object.assign(brain.body,{x:p.x,y:p.y,z:p.z,vx:0,vy:0,vz:0});}
  }
  movement(id:string,m:Movement){
   const p=this.players.get(id);if(!p||p.hp<=0||this.winner)return;
   if(m.warp!==undefined&&m.warp!==p.warp)return;
   if(![m.x,m.y,m.z,m.yaw,m.pitch].every(Number.isFinite)||!WEAPON_IDS.includes(m.weapon))return;
-  // A bounded casual-game movement envelope. The host owns combat and scoring.
-  if(Math.abs(m.x)>(this.gameMode==='parkour'?600:120)||Math.abs(m.z)>(this.gameMode==='parkour'?600:120)||m.y>240||m.y < -100)return;
-  if(dist(p,m)>32)return;
   if(p.lunging)return;
   const selected=this.gameMode==='gun-game'?GUN_GAME_STAGES[this.gunOrder[stageIndexForKills(p.kills)]].weapon:m.weapon==='aotd'&&p.aotdCharges<1?(p.aoteOwned?'aote':'rifle'):m.weapon==='aote'&&!p.aoteOwned?'rifle':m.weapon;
   if(selected!==p.weapon){p.reloading=null;p.reloadUntil=0;}
-  Object.assign(p,{x:m.x,y:m.y,z:m.z,yaw:m.yaw,pitch:clamp(m.pitch,-1.5,1.5),weapon:selected,grounded:m.grounded===true,focused:m.focused===true});
+  Object.assign(p,{yaw:m.yaw,pitch:clamp(m.pitch,-1.5,1.5),weapon:selected,focused:m.focused===true});
+ }
+ inputs(id:string,inputs:MoveInput[]){
+  const p=this.players.get(id);if(!p||!Array.isArray(inputs)||inputs.length>30)return;
+  let c=this.controls.get(id);if(!c){c={queue:[],received:0,command:0,credit:0,warp:p.warp};this.controls.set(id,c);}
+  if(c.warp!==p.warp){p.motion=motionAt(p);c.queue=[];c.credit=0;c.warp=p.warp;}
+  for(const i of inputs){if(!validInput(i)||!WEAPON_IDS.includes(i.weapon)||i.warp!==p.warp||i.seq<=c.received||c.queue.length>=30)continue;c.received=i.seq;c.queue.push({...i});}
+ }
+ command(id:string,c:Command){
+  const p=this.players.get(id);if(!p||!c||!Number.isSafeInteger(c.inputSeq)||c.inputSeq<0||!Number.isSafeInteger(c.seq)||c.seq<=0||c.warp!==p.warp||![c.at,c.viewAt,c.yaw,c.pitch].every(Number.isFinite)||c.at>this.time+.05||this.time-c.at>.4||c.viewAt>c.at||c.at-c.viewAt>.15||Math.abs(c.pitch)>1.5||Math.abs(c.yaw)>1e6||!WEAPON_IDS.includes(c.weapon)||typeof c.focused!=='boolean'||!c.action||!['fire','lunge','reload','ability','grenade','grapple','pickup','gadget'].includes(c.action.type))return;
+  this.inputs(id,[]);const state=this.controls.get(id)!;if(c.seq<=state.command)return;state.command=c.seq;
+  const queued=this.pendingCommands.get(id)??[];if(queued.length>=8)return;queued.push({...c,action:{...c.action}});this.pendingCommands.set(id,queued);this.flushCommands(id);
+ }
+ private flushCommands(id:string){
+  const p=this.players.get(id),queue=this.pendingCommands.get(id);if(!p||!queue)return;
+  while(queue.length){const c=queue[0];if(c.warp!==p.warp||this.time-c.at>.4||p.hp<=0){queue.shift();continue;}
+  if((p.ack??0)<c.inputSeq)break;
+  if(c.action.type==='fire'&&p.nextFire>this.time)break;queue.shift();
+  this.movement(id,{...p,yaw:c.yaw,pitch:c.pitch,weapon:c.weapon,focused:c.focused,warp:c.warp});
+  this.shotTime=Math.max(this.time-MAX_REWIND,c.viewAt);try{this.action(id,c.action);}finally{this.shotTime=null;}
+  }
+ }
+ private moveHumans(dt:number){
+  for(const [id,c] of this.controls){const p=this.players.get(id);if(!p){this.controls.delete(id);continue;}
+   if(c.warp!==p.warp||!p.motion){p.motion=motionAt(p);c.queue=[];c.credit=0;c.warp=p.warp;}
+   c.credit=Math.min(.25,c.credit+dt);
+   if(p.hp<=0||p.lunging){c.queue=[];c.credit=0;continue;}
+   if(this.gameMode==='parkour'&&p.motion!.body.grounded){const platform=courseFor(this.arenaId,this.courseSeed)[p.parkourStep??0];p.motion!.body.x+=platformAt(platform,this.time).x-platformAt(platform,this.time-dt).x;p.x=p.motion!.body.x;}
+   while(c.queue.length&&c.credit+1e-8>=INPUT_STEP){const i=c.queue.shift()!;c.credit-=INPUT_STEP;if(i.warp!==p.warp)continue;
+    this.movement(id,{...p,yaw:i.yaw,pitch:i.pitch,weapon:i.weapon,focused:i.focused,warp:i.warp});
+    advanceMotion(p.motion!,i,p,this.modifiers,this.arena.colliders,this.arena.jumpPads,this.time);
+    Object.assign(p,{x:p.motion!.body.x,y:p.motion!.body.y,z:p.motion!.body.z,grounded:p.motion!.body.grounded,ack:i.seq});
+   }
+   // Brief gaps can catch up. A silent client cannot suspend gravity indefinitely.
+   if(!c.queue.length&&c.credit>=.25-1e-8){
+    advanceMotion(p.motion!,{seq:c.received,warp:p.warp,forward:0,strafe:0,yaw:p.yaw,pitch:p.pitch,weapon:p.weapon,sprint:false,focused:false,jump:false,slide:false},p,this.modifiers,this.arena.colliders,this.arena.jumpPads,this.time,dt);
+    Object.assign(p,{x:p.motion!.body.x,y:p.motion!.body.y,z:p.motion!.body.z,grounded:p.motion!.body.grounded});
+   }
+  }
  }
  event(e:Omit<GameEvent,'id'>){this.events.push({...e,id:++this.seq});if(this.events.length>100)this.events.shift();}
  action(id:string,a:Action){
@@ -110,6 +151,7 @@ export class Simulation {
   if(a.type==='grapple'&&p.grappleUntil<=this.time&&p.mana>=10){
    const o={x:p.x,y:p.y+1.5,z:p.z},d=direction(p.yaw,p.pitch);const t=rayWorld(o,d,this.arena.colliders,28);
    if(t>=28||t<2){this.event({type:'grapple',from:id,text:'Aim the hook at a wall or tower within 28m.'});return;}
+   const length=Math.hypot(d.x*t,d.y*t+.5,d.z*t);this.push(p,{x:d.x*t/length*21,y:Math.max(7,(d.y*t+.5)/length*21+4),z:d.z*t/length*21});
    this.spendMana(p,10);p.grappleUntil=this.time+1.5*this.modifiers.cooldownScale;this.event({type:'grapple',from:id,position:o,end:{x:o.x+d.x*t,y:o.y+d.y*t,z:o.z+d.z*t}});return;
   }
   if(a.type==='grenade'&&p.grenadeUntil<=this.time){
@@ -126,6 +168,7 @@ export class Simulation {
  private push(p:Player,velocity:Vec3){
   if(p.hp<=0)return;
   this.event({type:'push',to:p.id,end:velocity,position:{x:p.x,y:p.y,z:p.z}});
+  if(p.motion){p.motion.impulse.x=clamp(p.motion.impulse.x+velocity.x,-22,22);p.motion.impulse.z=clamp(p.motion.impulse.z+velocity.z,-22,22);if(velocity.y>0){p.motion.body.vy=Math.max(p.motion.body.vy,velocity.y);p.motion.body.grounded=false;p.motion.body.jumps=Math.max(1,p.motion.body.jumps);}}
   const brain=this.brains.get(p.id);if(brain){brain.impulse??={x:0,y:0,z:0};brain.impulse.x=clamp(brain.impulse.x+velocity.x,-22,22);brain.impulse.z=clamp(brain.impulse.z+velocity.z,-22,22);if(velocity.y>0){brain.body.vy=Math.max(brain.body.vy,velocity.y);brain.body.grounded=false;}}
  }
  private pushAway(p:Player,from:Vec3,power:number,up:number){const length=Math.max(.1,Math.hypot(p.x-from.x,p.z-from.z));this.push(p,{x:(p.x-from.x)/length*power,y:up,z:(p.z-from.z)/length*power});}
@@ -226,9 +269,10 @@ export class Simulation {
      const toward={x:dx/Math.max(.01,length),y:0,z:dz/Math.max(.01,length)};
      if(length<w.range&&Math.abs(target.y-p.y)<2&&dot>.42&&length<closest&&rayWorld(origin,toward,this.arena.colliders,length+.2)>=length-.35){closest=length;hit=target;headshot=raySphere(origin,d,{x:target.x,y:target.y+1.55,z:target.z},.35)<w.range;}
     }else{
-     const head=raySphere(origin,d,{x:target.x,y:target.y+1.55,z:target.z},.29);
-     const chest=raySphere(origin,d,{x:target.x,y:target.y+.98,z:target.z},.47);
-     const legs=raySphere(origin,d,{x:target.x,y:target.y+.4,z:target.z},.37);
+     const position=this.shotTime===null?target:historicalPosition(this.hitHistory,target,this.shotTime);if(!position)continue;
+     const head=raySphere(origin,d,{x:position.x,y:position.y+1.55,z:position.z},.29);
+     const chest=raySphere(origin,d,{x:position.x,y:position.y+.98,z:position.z},.47);
+     const legs=raySphere(origin,d,{x:position.x,y:position.y+.4,z:position.z},.37);
      const t=Math.min(head,chest,legs);if(t<closest){closest=t;hit=target;headshot=head<=chest&&head<=legs;}
     }
    }
@@ -267,7 +311,8 @@ export class Simulation {
   if(owner&&owner.kills>=TARGET_KILLS&&!this.winner){this.winner=owner.id;this.event({type:'end',from:owner.id});}
  }
  tick(dt:number){
-  this.time+=dt;if(this.winner)return;if(this.gameMode==='parkour'){const bounds=courseColliders(this.arenaId,this.courseSeed,this.time);bounds.forEach((b,i)=>Object.assign(this.arena.colliders[i],b));}this.updateLunges(dt);this.checkNukeUnlock();
+  this.hitHistory.push({time:this.time,players:[...this.players.values()].map(p=>({...p}))});this.hitHistory=this.hitHistory.filter(f=>f.time>=this.time-MAX_REWIND-.05);
+  this.time+=dt;if(this.winner)return;if(this.gameMode==='parkour'){const bounds=courseColliders(this.arenaId,this.courseSeed,this.time);bounds.forEach((b,i)=>Object.assign(this.arena.colliders[i],b));}this.updateLunges(dt);this.moveHumans(dt);for(const id of this.pendingCommands.keys())this.flushCommands(id);this.checkNukeUnlock();
   for(const p of this.players.values()){
    if(p.hp<=0){if(this.time>=p.deadUntil)this.spawn(p);continue;}
    p.mana=this.modifiers.infiniteMana?100:Math.min(100,p.mana+16*dt);
@@ -346,6 +391,6 @@ export class Simulation {
   }
   if(p.y<course[p.checkpoint??0].y-5){p.falls=(p.falls??0)+1;p.parkourStep=p.checkpoint??0;this.spawn(p);}
  }
- snapshot():Snapshot{return {time:this.time,arenaId:this.arenaId,gameMode:this.gameMode,gunOrder:[...this.gunOrder],courseSeed:this.courseSeed,nukeUnlocked:this.nukeUnlocked,players:[...this.players.values()].map(p=>({...p,appearance:{...p.appearance},ammo:{...p.ammo}})),pickups:{...this.pickups},loot:{...this.loot},modifiers:{...this.modifiers},grenades:this.grenades.map(g=>({...g})),fields:this.fields.map(f=>({...f})),winner:this.winner,round:this.round,events:[...this.events]};}
- restart(){this.courseSeed=(this.courseSeed+1)>>>0;if(this.gameMode==='parkour')this.arena.colliders=courseColliders(this.arenaId,this.courseSeed);this.gunOrder=shuffledGunOrder();this.winner=null;this.nukeUnlocked=false;this.recentDamage.clear();this.round++;this.grenades=[];this.fields=[];this.events=[];this.pickups={};this.loot={};for(const p of this.players.values()){p.kills=0;p.deaths=0;p.parkourStep=0;p.checkpoint=0;p.falls=0;this.spawn(p);}}
+ snapshot():Snapshot{for(const [id,c] of this.controls){const p=this.players.get(id);if(p&&c.warp!==p.warp){p.motion=motionAt(p);c.queue=[];c.credit=0;c.warp=p.warp;}}return {time:this.time,arenaId:this.arenaId,gameMode:this.gameMode,gunOrder:[...this.gunOrder],courseSeed:this.courseSeed,nukeUnlocked:this.nukeUnlocked,players:[...this.players.values()].map(p=>({...p,motion:p.motion?structuredClone(p.motion):undefined,appearance:{...p.appearance},ammo:{...p.ammo}})),pickups:{...this.pickups},loot:{...this.loot},modifiers:{...this.modifiers},grenades:this.grenades.map(g=>({...g})),fields:this.fields.map(f=>({...f})),winner:this.winner,round:this.round,events:[...this.events]};}
+ restart(){this.hitHistory=[];this.pendingCommands.clear();this.courseSeed=(this.courseSeed+1)>>>0;if(this.gameMode==='parkour')this.arena.colliders=courseColliders(this.arenaId,this.courseSeed);this.gunOrder=shuffledGunOrder();this.winner=null;this.nukeUnlocked=false;this.recentDamage.clear();this.round++;this.grenades=[];this.fields=[];this.events=[];this.pickups={};this.loot={};for(const p of this.players.values()){p.kills=0;p.deaths=0;p.parkourStep=0;p.checkpoint=0;p.falls=0;this.spawn(p);}}
 }
